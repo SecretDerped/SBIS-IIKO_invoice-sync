@@ -700,6 +700,7 @@ async def job():
                 except Exception as e:
                     update_queue.put(lambda: iiko_update_status(iiko_login, f'(!) Ошибка'))
                     logging.warning(f'Ошибка в цикле: {e} | {traceback.format_exc()}')
+                    continue
 
         except Exception as e:
             logging.warning(f'Ошибка: {e}\n\n {traceback.format_exc()}')
