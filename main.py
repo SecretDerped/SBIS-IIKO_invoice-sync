@@ -34,7 +34,7 @@ IIKO_CONN_PATH = 'iiko_cash.json'
 SBIS_CONN_PATH = 'sbis_cash.json'
 CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
 SECONDS_OF_WAITING = 5
-iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'  # 999-240-822.iiko.it
+iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 
 
 class NoAuth(Exception):
@@ -103,8 +103,8 @@ class IIKOManager:
             params = {}
         base_url = f'https://{self.iiko_server_address}:443/resto/api/'
         url = base_url + method
-        sbis_account = self.get_key()
-        params['key'] = sbis_account.get('key')
+        iiko_account = self.get_key()
+        params['key'] = iiko_account.get('key')
 
         res = requests.get(url, params)
 
@@ -115,10 +115,10 @@ class IIKOManager:
 
         match res.status_code:
             case 200:
-                update_queue.put(lambda: update_iiko_status(sbis_account.get('login'), f'✔ Подключено'))
+                update_queue.put(lambda: update_iiko_status(iiko_account.get('login'), f'✔ Подключено'))
                 return res.text
             case 401:
-                params['key'] = self.get_auth(sbis_account.get('password'))
+                params['key'] = self.get_auth(iiko_account.get('password'))
                 res = requests.get(url, params)
                 return res.text
             case _, *code:
