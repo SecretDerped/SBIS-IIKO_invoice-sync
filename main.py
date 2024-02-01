@@ -24,7 +24,7 @@ from pystray import Icon as TrayIcon, MenuItem
 
 console_out = logging.StreamHandler()
 file_log = logging.FileHandler(f"application.log", mode="w")
-logging.basicConfig(handlers=(file_log, console_out), level=logging.DEBUG,
+logging.basicConfig(handlers=(file_log, console_out), level=logging.INFO,
                     format='[%(asctime)s | %(levelname)s]: %(message)s')
 
 add_window_size = "210x120"
@@ -36,273 +36,7 @@ CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
 SECONDS_OF_WAITING = 5
 iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
-search_doc_days = 5
-
-
-class NoAuth(Exception):
-    pass
-
-
-class SABYAccessDenied(Exception):
-    pass
-
-
-class IIKOManager:
-    def __init__(self, iiko_connect_list):
-        self.connect_list = iiko_connect_list
-        self.iiko_server_address = iiko_server_address
-        self.cryptokey = CRYPTOKEY
-        self.login = None
-
-    def get_auth(self, password):
-        login = self.login
-        password_hash = (hashlib.sha1(password.encode())).hexdigest()
-        url = f'https://{iiko_server_address}:443/resto/api/auth?login={login}&pass={password_hash}'
-        res = requests.get(url)
-
-        logging.info(f'Method: get_auth() | Code: {res.status_code} \n')
-        logging.debug(f'URL: {url} \n'
-                      f'Result: {res.text}')
-
-        match res.status_code:
-            case 200:
-                logging.info(f'Авторизация в IIKO прошла. {login}: вход выполнен.')
-                with open(f"{login}_iiko_token.txt", "w+") as file:
-                    iiko_key = res.text
-                    file.write(str(iiko_key))
-                    return iiko_key
-            case 401:
-                update_queue.put(lambda: update_iiko_status(login, 'Неверный логин/пароль'))
-                raise NoAuth('Неверный логин/пароль. \n'
-                             'Пароль можно изменить в IIKO Office:\n'
-                             '-- [Администрирование]\n'
-                             '-- [Права доступа]\n'
-                             '-- Правой кнопкой мыши по пользователю\n'
-                             '-- [Редактировать пользователя]\n'
-                             '-- Поле "Пароль"\n'
-                             '-- [Сохранить]')
-            case _, *code:
-                update_queue.put(
-                    lambda: update_iiko_status(login, f'(!) Ошибка. Код: {code}'))
-                raise NoAuth(
-                    f'Код {code}, не удалось авторизоваться в IIKO. Ответ сервера: {res.text}')
-
-    def get_key(self):
-        login = self.login
-        iiko_hash = self.connect_list[f'{login}']
-        password = self.cryptokey.decrypt(iiko_hash).decode()
-        try:
-            with open(f"{login}_iiko_token.txt", "r") as file:
-                iiko_key = file.read()
-                return {'login': login, 'password': password, 'key': iiko_key}
-        except FileNotFoundError:
-            logging.info(f'Аккаунт IIKO - {login}: авторизуемся...')
-            iiko_key = self.get_auth(password)
-            return {'login': login, 'password': password, 'key': iiko_key}
-
-    def get_query(self, method, params=None):
-        if params is None:
-            params = {}
-        base_url = f'https://{self.iiko_server_address}:443/resto/api/'
-        url = base_url + method
-        iiko_account = self.get_key()
-        params['key'] = iiko_account.get('key')
-
-        res = requests.get(url, params)
-
-        logging.info(f'Method: GET {method} | Code: {res.status_code}')
-        logging.debug(f'URL: {url} \n'
-                      f'Parameters: {params} \n'
-                      f'Result: {res.text}')
-
-        match res.status_code:
-            case 200:
-                update_queue.put(lambda: update_iiko_status(iiko_account.get('login'), f'✔ Подключено'))
-                return res.text
-            case 401:
-                params['key'] = self.get_auth(iiko_account.get('password'))
-                res = requests.get(url, params)
-                return res.text
-            case _, *code:
-                logging.warning(f'Code: {code}, Method: GET {method}, response: {res.text}')
-                update_queue.put(lambda: update_iiko_status(key.get('login'), f'(!) Ошибка. Код: {code}'))
-                return f'Error {code}. See warning logs.'
-
-    def search_income_docs(self, from_date: str):
-        """Ищет приходные накладные IIKO с введённой даты по сегодняшний день."""
-        params = {'from': from_date,
-                  'to': date.today().strftime('%Y-%m-%d')}
-        return self.get_query(f'documents/export/incomingInvoice', params)
-
-    def supplier_search_by_id(self, supplier_id: str = ''):
-        suppliers_list = xmltodict.parse(self.get_query('suppliers'))
-        for supplier in suppliers_list['employees']['employee']:
-            if supplier['id'] == supplier_id:
-                return {'name': (supplier.get('name')).replace('"', ''),
-                        #  Если оставить кавычки в имени, XML сломается
-                        'inn': supplier.get('taxpayerIdNumber'),
-                        'address': supplier.get('address', '-'),
-                        'cardNumber': supplier.get('cardNumber', ''),
-                        'email': supplier.get('email', '@'),
-                        'phone': supplier.get('phone', '-')}
-            else:
-                continue
-
-    def get_org_info_by_store_id(self, store_id):
-        store_dict = xmltodict.parse(self.get_query('corporation/stores'))  # dict
-        orgs_dict = xmltodict.parse(self.get_query(f'corporation/departments'))  # dict
-        for store in store_dict.get("corporateItemDtoes", {}).get("corporateItemDto", []):
-            if store.get("id") == store_id:
-                parent_id = store.get("parentId")
-                store_name = store.get("name")
-                for organisation in orgs_dict.get("corporateItemDtoes", {}).get(
-                        "corporateItemDto", []):
-                    if organisation.get("id") == parent_id:
-                        match organisation.get("type"):
-                            case "DEPARTMENT":
-                                return {'store_name': store_name,
-                                        'inn': organisation.get("taxpayerIdNumber"),
-                                        'kpp': organisation.get("code")}
-                            case "JURPERSON":
-                                jur_info = organisation.get("jurPersonAdditionalPropertiesDto", {})
-                                return {'store_name': store_name,
-                                        'inn': jur_info.get("taxpayerId"),
-                                        'kpp': jur_info.get("accountingReasonCode")}
-        return {}
-
-
-class SBISManager:
-    def __init__(self, sbis_connection_list):
-        self.cryptokey = CRYPTOKEY
-        self.regulations_id = sbis_regulations_id
-        self.connection_list = sbis_connection_list
-        self.base_url = 'https://online.sbis.ru'
-        self.headers = {
-            'Host': 'online.sbis.ru',
-            'Content-Type': 'application/json-rpc; charset=utf-8',
-            'Accept': 'application/json-rpc'
-        }
-        self.login = None
-
-    def auth(self, login, password):
-        self.login = login
-        payload = {
-            "jsonrpc": "2.0",
-            "method": 'СБИС.Аутентифицировать',
-            "params": {"Логин": login, "Пароль": password},
-            "protocol": 2,
-            "id": 0
-        }
-        res = requests.post(f'{self.base_url}/auth/service/', headers=self.headers,
-                            data=json.dumps(payload))
-        sid = json.loads(res.text)['result']
-
-        with open(f"{login}_sbis_token.txt", "w+") as file:
-            file.write(str(sid))
-        return sid
-
-    def get_sid(self):
-        login = self.login
-        password_hash = self.connection_list[login]
-        password = self.cryptokey.decrypt(password_hash).decode()
-        try:
-            with open(f"{login}_sbis_token.txt", "r") as file:
-                sid = file.read()
-                return {'login': login, 'password': password, 'sid': sid}
-        except FileNotFoundError:
-            try:
-                sid = self.auth(login, password)
-                return {'login': login, 'password': password, 'sid': sid}
-            except Exception:
-                logging.critical(f"Не удалось авторизоваться в СБИС.", exc_info=True)
-                update_sbis_status(login, '(!) Ошибка', "red")
-
-    def main_query(self, method: str, params: dict or str):
-        sid = self.get_sid()
-        self.headers['X-SBISSessionID'] = sid['sid']
-        payload = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-            "protocol": 2,
-            "id": 0
-        }
-
-        res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
-                            data=json.dumps(payload))
-
-        logging.info(f'Method: {method} | Code: {res.status_code}')
-        logging.debug(f'URL: https://online.sbis.ru/service/ \n'
-                      f'Headers: {self.headers}\n'
-                      f'Parameters: {params}\n'
-                      f'Result: {json.loads(res.text)}')
-
-        match res.status_code:
-            case 200:
-                update_sbis_status(sid['login'], '✔ Подключено', 'blue')
-                return json.loads(res.text)['result']
-            case 401:
-                logging.info('Требуется обновление токена.')
-                time.sleep(1)
-                self.headers['X-SBISSessionID'] = self.auth(sid['login'], sid['password'])
-                res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
-                                    data=json.dumps(payload))
-                return json.loads(res.text)['result']
-            case 500:
-                status_label.config(text=f'(!) Ошибка: {sid["login"]}', fg="red")
-                raise AttributeError(f'{method}: Check debug logs.')
-
-    def search_doc(self, num, doc_type, doc_date):
-        assert any(map(str.isdigit, num)), 'СБИС не сможет найти документ по номеру, в котором нет цифр'
-        params = {
-            "Фильтр": {
-                "Маска": num,
-                "ДатаС": doc_date,  # '17.01.2024'
-                "ДатаПо": doc_date,  # '17.01.2024'
-                "Тип": doc_type
-            }
-        }
-        res = self.main_query("СБИС.СписокДокументов", params)
-        if len(res['Документ']) == 0:
-            return None
-        else:
-            return res['Документ'][0]
-
-    def search_agr(self, inn):
-        """Ищет договор в СБИСе по номеру документа.
-        В качестве номера договора используется ИНН поставщика.
-        ИНН: Состоит из 10-и или 12-и цифр строкой"""
-        if inn is not None:
-            assert any(map(str.isdigit, inn)), 'СБИС не сможет найти договор по номеру, в котором нет цифр'
-        params = {
-            "Фильтр": {
-                "Маска": inn,
-                "ДатаС": '01.01.2020',
-                "ДатаПо": date.today().strftime('%d.%m.%Y'),
-                "Тип": "ДоговорИсх"
-            }
-        }
-        res = self.main_query("СБИС.СписокДокументов", params)
-        if len(res['Документ']) == 0:
-            return None
-        else:
-            return res['Документ'][0]
-
-    def agreement_connect(self, agr_id: str, doc_id: str):
-        params = {
-            "Документ": {
-                'ВидСвязи': 'Договор',
-                "Идентификатор": agr_id,
-                "ДокументСледствие": {
-                    "Документ": {
-                        'ВидСвязи': 'Договор',
-                        "Идентификатор": doc_id}}}}
-
-        self.main_query("СБИС.ЗаписатьДокумент", params)
-
-
-def doc_print(json_doc):
-    logging.info(json.dumps(json_doc, indent=4, sort_keys=True, ensure_ascii=False))
+search_doc_days = 3
 
 
 def start_async_loop(loop, event):
@@ -431,6 +165,287 @@ def update_sbis_status(login, status, color):
     update_queue.put(lambda: status_label.config(text=f'{status}: {login}', fg=f'{color}'))
 
 
+def doc_print(json_doc):
+    logging.info(json.dumps(json_doc, indent=4, sort_keys=True, ensure_ascii=False))
+
+
+def get_digits(string):
+    return re.sub('\D', '', string)
+
+
+def create_responsible_dict(store_name):
+    """Принимает название склада IIKO в качестве аргумента и создаёт поле
+    "Ответственный" для СБИС-запроса"""
+    if store_name:
+        words = store_name.split()
+        return {
+            'Фамилия': words[0],
+            'Имя': words[1] if len(words) > 1 else '',
+            'Отчество': ' '.join(words[2:]) if len(words) > 2 else ''
+        }
+    return {}
+
+
+class NoAuth(Exception):
+    pass
+
+
+class SABYAccessDenied(Exception):
+    pass
+
+
+class IIKOManager:
+    def __init__(self, iiko_connect_list):
+        self.connect_list = iiko_connect_list
+        self.iiko_server_address = iiko_server_address
+        self.cryptokey = CRYPTOKEY
+        self.login = None
+
+    def get_auth(self, password):
+        login = self.login
+        password_hash = (hashlib.sha1(password.encode())).hexdigest()
+        url = f'https://{iiko_server_address}:443/resto/api/auth?login={login}&pass={password_hash}'
+        res = requests.get(url)
+
+        logging.info(f'Method: get_auth() | Code: {res.status_code} \n')
+        logging.debug(f'URL: {url} \n'
+                      f'Result: {res.text}')
+
+        match res.status_code:
+            case 200:
+                logging.info(f'Авторизация в IIKO прошла. {login}: вход выполнен.')
+                with open(f"{login}_iiko_token.txt", "w+") as file:
+                    iiko_key = res.text
+                    file.write(str(iiko_key))
+                    return iiko_key
+            case 401:
+                update_queue.put(lambda: update_iiko_status(login, 'Неверный логин/пароль'))
+                raise NoAuth('Неверный логин/пароль. \n'
+                             'Пароль можно изменить в IIKO Office:\n'
+                             '-- [Администрирование]\n'
+                             '-- [Права доступа]\n'
+                             '-- Правой кнопкой мыши по пользователю\n'
+                             '-- [Редактировать пользователя]\n'
+                             '-- Поле "Пароль"\n'
+                             '-- [Сохранить]')
+            case _, *code:
+                update_queue.put(
+                    lambda: update_iiko_status(login, f'(!) Ошибка. Код: {code}'))
+                raise NoAuth(
+                    f'Код {code}, не удалось авторизоваться в IIKO. Ответ сервера: {res.text}')
+
+    def get_key(self):
+        login = self.login
+        iiko_hash = self.connect_list[f'{login}']
+        password = self.cryptokey.decrypt(iiko_hash).decode()
+        try:
+            with open(f"{login}_iiko_token.txt", "r") as file:
+                iiko_key = file.read()
+                return {'login': login, 'password': password, 'key': iiko_key}
+        except FileNotFoundError:
+            logging.info(f'Аккаунт IIKO - {login}: авторизуемся...')
+            iiko_key = self.get_auth(password)
+            return {'login': login, 'password': password, 'key': iiko_key}
+
+    def get_query(self, method, params=None):
+        if params is None:
+            params = {}
+        base_url = f'https://{self.iiko_server_address}:443/resto/api/'
+        url = base_url + method
+        iiko_account = self.get_key()
+        params['key'] = iiko_account.get('key')
+
+        res = requests.get(url, params)
+
+        logging.info(f'Method: GET {method} | Code: {res.status_code}')
+        logging.debug(f'URL: {url} \n'
+                      f'Parameters: {params} \n'
+                      f'Result: {res.text}')
+
+        match res.status_code:
+            case 200:
+                update_queue.put(lambda: update_iiko_status(iiko_account.get('login'), f'✔ Подключено'))
+                return res.text
+            case 401:
+                params['key'] = self.get_auth(iiko_account.get('password'))
+                res = requests.get(url, params)
+                return res.text
+            case _, *code:
+                logging.warning(f'Code: {code}, Method: GET {method}, response: {res.text}')
+                update_queue.put(lambda: update_iiko_status(key.get('login'), f'(!) Ошибка. Код: {code}'))
+                return f'Error {code}. See warning logs.'
+
+    def search_income_docs(self, from_date: str):
+        """Ищет приходные накладные IIKO с введённой даты по сегодняшний день."""
+        params = {'from': from_date,
+                  'to': date.today().strftime('%Y-%m-%d')}
+        return self.get_query(f'documents/export/incomingInvoice', params)
+
+    def supplier_search_by_id(self, supplier_id: str = ''):
+        suppliers_list = xmltodict.parse(self.get_query('suppliers'))
+        for supplier in suppliers_list['employees']['employee']:
+            if supplier['id'] == supplier_id:
+                return {'name': (supplier.get('name')).replace('"', ''),
+                        #  Если оставить кавычки в имени, XML сломается
+                        'inn': supplier.get('taxpayerIdNumber'),
+                        'address': supplier.get('address', '-'),
+                        'cardNumber': supplier.get('cardNumber', ''),
+                        'email': supplier.get('email', '@'),
+                        'phone': supplier.get('phone', '-')}
+            else:
+                continue
+
+    def get_org_info_by_store_id(self, store_id):
+        store_dict = xmltodict.parse(self.get_query('corporation/stores'))  # dict
+        orgs_dict = xmltodict.parse(self.get_query(f'corporation/departments'))  # dict
+        for store in store_dict.get("corporateItemDtoes", {}).get("corporateItemDto", []):
+            if store.get("id") == store_id:
+                parent_id = store.get("parentId")
+                store_name = store.get("name")
+                for organisation in orgs_dict.get("corporateItemDtoes", {}).get(
+                        "corporateItemDto", []):
+                    if organisation.get("id") == parent_id:
+                        match organisation.get("type"):
+                            case "DEPARTMENT":
+                                return {'store_name': store_name,
+                                        'inn': organisation.get("taxpayerIdNumber"),
+                                        'kpp': get_digits(organisation.get("code"))}
+                            case "JURPERSON":
+                                jur_info = organisation.get("jurPersonAdditionalPropertiesDto", {})
+                                return {'store_name': store_name,
+                                        'inn': jur_info.get("taxpayerId"),
+                                        'kpp': jur_info.get("accountingReasonCode")}
+        return {}
+
+
+class SBISManager:
+    def __init__(self, sbis_connection_list):
+        self.cryptokey = CRYPTOKEY
+        self.regulations_id = sbis_regulations_id
+        self.connection_list = sbis_connection_list
+        self.base_url = 'https://online.sbis.ru'
+        self.headers = {
+            'Host': 'online.sbis.ru',
+            'Content-Type': 'application/json-rpc; charset=utf-8',
+            'Accept': 'application/json-rpc'
+        }
+        self.login = None
+
+    def auth(self, login, password):
+        self.login = login
+        payload = {
+            "jsonrpc": "2.0",
+            "method": 'СБИС.Аутентифицировать',
+            "params": {"Логин": login, "Пароль": password},
+            "protocol": 2,
+            "id": 0
+        }
+        res = requests.post(f'{self.base_url}/auth/service/', headers=self.headers,
+                            data=json.dumps(payload))
+        sid = json.loads(res.text)['result']
+
+        with open(f"{login}_sbis_token.txt", "w+") as file:
+            file.write(str(sid))
+        return sid
+
+    def get_sid(self):
+        login = self.login
+        password_hash = self.connection_list[login]
+        password = self.cryptokey.decrypt(password_hash).decode()
+        try:
+            with open(f"{login}_sbis_token.txt", "r") as file:
+                sid = file.read()
+                return {'login': login, 'password': password, 'sid': sid}
+        except FileNotFoundError:
+            try:
+                sid = self.auth(login, password)
+                return {'login': login, 'password': password, 'sid': sid}
+            except Exception:
+                logging.critical(f"Не удалось авторизоваться в СБИС.", exc_info=True)
+                update_sbis_status(login, '(!) Ошибка', "red")
+
+    def main_query(self, method: str, params: dict or str):
+        sid = self.get_sid()
+        self.headers['X-SBISSessionID'] = sid['sid']
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+            "protocol": 2,
+            "id": 0
+        }
+
+        res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
+                            data=json.dumps(payload))
+
+        logging.info(f'Method: {method} | Code: {res.status_code}')
+        logging.debug(f'URL: https://online.sbis.ru/service/ \n'
+                      f'Headers: {self.headers}\n'
+                      f'Parameters: {params}\n'
+                      f'Result: {json.loads(res.text)}')
+
+        match res.status_code:
+            case 200:
+                update_sbis_status(sid['login'], '✔ Подключено', 'blue')
+                return json.loads(res.text)['result']
+            case 401:
+                logging.info('Требуется обновление токена.')
+                time.sleep(1)
+                self.headers['X-SBISSessionID'] = self.auth(sid['login'], sid['password'])
+                res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
+                                    data=json.dumps(payload))
+                return json.loads(res.text)['result']
+            case 500:
+                status_label.config(text=f'(!) Ошибка: {sid["login"]}', fg="red")
+                raise AttributeError(f'{method}: Check debug logs.')
+
+    def search_doc(self, num, doc_type, doc_date):
+        assert any(map(str.isdigit, num)), 'СБИС не сможет найти документ по номеру, в котором нет цифр'
+        params = {
+            "Фильтр": {
+                "Маска": num,
+                "ДатаС": doc_date,  # '17.01.2024'
+                "ДатаПо": doc_date,  # '17.01.2024'
+                "Тип": doc_type
+            }
+        }
+        res = self.main_query("СБИС.СписокДокументов", params)
+        if len(res['Документ']) == 0:
+            return None
+        else:
+            return res['Документ'][0]
+
+    def search_agr(self, inn):
+        """Ищет договор в СБИСе по номеру документа.
+        В качестве номера договора используется ИНН поставщика.
+        ИНН: Состоит из 10-и или 12-и цифр строкой"""
+        if inn is not None:
+            assert any(map(str.isdigit, inn)), 'СБИС не сможет найти договор по номеру, в котором нет цифр'
+            params = {
+                "Фильтр": {
+                    "Маска": inn,
+                    "ДатаС": '01.01.2020',
+                    "ДатаПо": date.today().strftime('%d.%m.%Y'),
+                    "Тип": "ДоговорИсх"
+                }
+            }
+            res = self.main_query("СБИС.СписокДокументов", params)
+            return None if len(res['Документ']) == 0 else res['Документ'][0]
+        return None
+
+    def agreement_connect(self, agr_id: str, doc_id: str):
+        params = {
+            "Документ": {
+                'ВидСвязи': 'Договор',
+                "Идентификатор": agr_id,
+                "ДокументСледствие": {
+                    "Документ": {
+                        'ВидСвязи': 'Договор',
+                        "Идентификатор": doc_id}}}}
+
+        self.main_query("СБИС.ЗаписатьДокумент", params)
+
+
 root = tk.Tk()
 root.title("Соединения IIKO")
 root.geometry(main_windows_size)
@@ -474,24 +489,10 @@ status_label = tk.Label(root, text="Не подключено")
 status_label.pack(side=tk.TOP, padx=10, pady=10)
 
 
-def create_responsible_dict(store_name):
-    """Принимает название склада IIKO в качестве аргумента и создаёт поле
-    "Ответственный" для СБИС-запроса"""
-    if store_name:
-        words = store_name.split()
-        return {
-            'Фамилия': words[0],
-            'Имя': words[1] if len(words) > 1 else '',
-            'Отчество': ' '.join(words[2:]) if len(words) > 2 else ''
-        }
-    return {}
-
-
 async def job(iiko_connect_list, sbis_connection_list):
     while True:
         try:
             logging.info("Начало цикла...")
-
             assert len(sbis_connection_list) > 0, 'Отсутствует аккаунт СБИС'
             for sbis_login in sbis_connection_list.keys():
                 sbis.login = sbis_login
@@ -514,38 +515,62 @@ async def job(iiko_connect_list, sbis_connection_list):
                             break
 
                         iiko_doc_num = iiko_doc.get("documentNumber")
-                        if iiko_doc['status'] == 'DELETED':
+                        if iiko_doc.get('status') == 'DELETED':
                             logging.info(f'№{iiko_doc_num} удалён в IIKO. Пропуск... \n')
+                            continue
+                        match iiko_doc.get('conception'):
+                            case None | '2609b25f-2180-bf98-5c1c-967664eea837':
+                                logging.info(f'№{iiko_doc_num} без концепции в IIKO. Пропуск... \n')
+                                continue
+
+                        supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
+                        if supplier.get('name') is None:
+                            logging.info(f'№{iiko_doc_num} - мягкий чек. Пропуск...\n')
                             continue
 
                         income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
                         sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
-                        org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                        supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
-                        responsible = create_responsible_dict(org_info.get('store_name'))
+                        '''else:
+                                logging.info(f'№{iiko_doc_num} найден в СБИС.\n Исправляем документ...')
+                                params = {
+                                    "Документ": {
+                                        # "Тип": "ДокОтгрВх",
+                                        "Идентификатор": sbis_doc["Идентификатор"],
+                                        "Регламент": {"Идентификатор": sbis.regulations_id},
+                                        "Примечание": supplier.get('name'),
+                                        "Ответственный": responsible,
+                                        "НашаОрганизация": {
+                                            "СвЮЛ": {
+                                                "ИНН": org_info.get('inn'),
+                                                "КПП": org_info.get('kpp')}}}}
+                                sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                                logging.info(f'№{iiko_doc_num} исправлен в СБИС.')'''
 
                         if sbis_doc is not None:
                             if sbis_doc['Расширение']['Проведен'] == 'Да':
                                 logging.info(f'№{iiko_doc_num} уже проведён в СБИС. Пропуск... \n')
                                 continue
+
+                            elif sbis_doc['Примечание'] != '':
+                                logging.info(f'№{iiko_doc_num} уже обработан программой в СБИС. Пропуск... \n')
+                                continue
+
                             else:
-                                logging.info(f'№{iiko_doc_num} найден в СБИС.\n Исправляем документ...')
+                                logging.info(f'№{iiko_doc_num} найден в СБИС. Исправляем документ...')
+                                org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
+                                responsible = create_responsible_dict(org_info.get('store_name'))
                                 params = {
-                                    "Идентификатор": sbis_doc["Идентификатор"],
-                                    "Регламент": {
-                                        "Идентификатор": sbis.regulations_id,
-                                    },
-                                    "Примечание": supplier.get('name'),
-                                    "Ответственный": responsible,
-                                    "НашаОрганизация": {
-                                        "СвЮЛ": {
-                                            "ИНН": org_info.get('inn'),
-                                            "КПП": org_info.get('kpp')}}}
-                                sbis.main_query("СБИС.ЗаписатьДокумент", params)  # TODO: дебажнуть
-                                logging.info(f'№{iiko_doc_num} исправлен в СБИС.')
+                                    "Документ": {
+                                        "Идентификатор": sbis_doc["Идентификатор"],
+                                        "Примечание": supplier.get('name'),
+                                        "Ответственный": responsible}}
+                                sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                                logging.info(f'№{iiko_doc_num} исправлен в СБИС.\n')
 
                         else:
-                            logging.info(f'№{iiko_doc_num} Не найден в СБИС.\n Создаём документ...')
+                            logging.info(f'№{iiko_doc_num} не найден в СБИС.\n Создаём документ...')
+                            org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
+                            responsible = create_responsible_dict(org_info.get('store_name'))
                             with open(XML_FILEPATH, 'w') as file:
                                 file.write(f'''<?xml version="1.0" encoding="WINDOWS-1251" ?>
 <Файл ВерсФорм="5.02">
@@ -613,28 +638,31 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 total_price = 0
                                 total_without_vat = 0
                                 total_amount = 0
-
                                 items = iiko_doc['items']['item']
                                 if type(items) is dict:
                                     items = [items]
                                 for item in items:
-                                    code = item.get('code')
-                                    sum = item.get('sum', '0')
-                                    price = item.get('price', sum)
-                                    price_without_vat = item.get('priceWithoutVat', price)
-                                    actual_amount = item.get('actualAmount', '0')
-                                    total_without_vat += float(price_without_vat)
-                                    total_price += float(sum)
-                                    total_amount += float(actual_amount)
+                                    code = item.get("productArticle")
+
+                                    actual_amount = float(item.get('actualAmount', '1'))
+                                    sum = float(item.get('sum', '0'))
+                                    vat_percent = float(item.get("vatPercent", '0'))
+                                    price = float(item.get('price', sum))
+                                    price_without_vat = float(item.get('priceWithoutVat', price))
+
+                                    total_without_vat += sum - (sum * vat_percent)
+                                    total_price += sum
+                                    total_amount += actual_amount
                                     file.write(f'''
-                                <СвТов КодТов="{code}" НаимЕдИзм="шт" НалСт="без НДС" НеттоПередано="{actual_amount}" НомТов="{item_num}" ОКЕИ_Тов="796" СтБезНДС="{price_without_vat}" СтУчНДС="{price}" Цена="{price}">
+                                <СвТов КодТов="{code}" НаимЕдИзм="шт" НалСт="без НДС" НеттоПередано="{actual_amount}" НомТов="{item_num}" ОКЕИ_Тов="796" СтБезНДС="{price_without_vat * actual_amount}" СтУчНДС="{sum}" Цена="{price}">
+                                  <ИнфПолФХЖ2 Значен="{code}" Идентиф="КодПоставщика"/>
                                   <ИнфПолФХЖ2 Значен="{code}" Идентиф="КодПокупателя"/>
                                   <ИнфПолФХЖ2 Значен="&quot;Type&quot;:&quot;Товар&quot;" Идентиф="ПоляНоменклатуры"/>
                                   <ИнфПолФХЖ2 Значен="41-01" Идентиф="СчетУчета"/>
                                 </СвТов>''')
                                     item_num += 1
                                 file.write(f'''
-                                <Всего НеттоВс="{int(total_amount)}" СтБезНДСВс="{total_without_vat}" СтУчНДСВс="{total_price}"/>
+                                <Всего НеттоВс="{total_amount}" СтБезНДСВс="{total_without_vat}" СтУчНДСВс="{total_price}"/>
                               </СодФХЖ2>
                             </СвДокПТПрКроме>
                             <СодФХЖ3 СодОпер="Перечисленные в документе ценности переданы"/>
@@ -647,15 +675,12 @@ async def job(iiko_connect_list, sbis_connection_list):
 
                             params = {
                                 "Документ": {
-                                    "Вложение": [{'Файл': {'Имя': XML_FILEPATH,
-                                                           'ДвоичныеДанные': base64_file}}],
-                                    "Регламент": {
-                                        "Идентификатор": "129c1cc6-454c-4311-b774-f7591fcae4ff"
-                                    },
+                                    "Тип": "ДокОтгрВх",
+                                    "Вложение": [{'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}],
+                                    "Регламент": {"Идентификатор": sbis.regulations_id},
                                     'Номер': iiko_doc_num,
                                     "Примечание": supplier.get('name'),
                                     "Ответственный": responsible,
-                                    "Тип": "ДокОтгрВх",
                                     "НашаОрганизация": {
                                         "СвЮЛ": {
                                             "ИНН": org_info.get('inn'),
@@ -664,15 +689,13 @@ async def job(iiko_connect_list, sbis_connection_list):
                                     }}}
 
                             agreement = sbis.search_agr(supplier['inn'])
-                            if agreement is None:
+                            if agreement is None or agreement == 'None':
                                 sbis.main_query("СБИС.ЗаписатьДокумент", params)
                                 logging.info(
-                                    f"Договор с ИНН №{supplier['inn']} отсутствует.\n"
+                                    f"Договор с ИНН №{supplier['inn']} не найден.\n"
                                     f"Создан документ без договора с поставщиком.")
                             else:
-                                logging.info(
-                                    f"Найден договор с ИНН №{supplier['inn']}. Присоединяем к накладной...")
-                                agreement_note = re.sub('\D', '', agreement['Примечание'])
+                                agreement_note = get_digits(agreement['Примечание'])
                                 if agreement_note == '':
                                     agreement_note = '0'
                                 payment_days = int(agreement_note)
@@ -688,16 +711,12 @@ async def job(iiko_connect_list, sbis_connection_list):
                                         "Идентификатор": agreement["Идентификатор"]}}
 
                                 sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                logging.info(
-                                    f"Документ №{iiko_doc_num} подготовлен...")
-
                                 sbis.agreement_connect(agreement["Идентификатор"], sbis_doc["Идентификатор"])
-                                logging.info(
-                                    f"Договор №{supplier['inn']} прикреплён.")
+                                logging.info(f"Договор №{supplier['inn']} прикреплён.")
 
                             os.remove(XML_FILEPATH)
                             update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
-                            logging.info(f"Накладная №{iiko_doc_num} записана в СБИС.")
+                            logging.info(f"Накладная №{iiko_doc_num} записана в СБИС.\n")
 
                 except NoAuth:
                     update_queue.put(lambda: update_iiko_status(iiko_login, 'Неверный логин/пароль'))
@@ -707,14 +726,14 @@ async def job(iiko_connect_list, sbis_connection_list):
                     logging.warning(f'Ошибка в цикле: {e} | {traceback.format_exc()}')
                     continue
 
-        except ConnectionError:
-            update_queue.put(lambda: update_iiko_status(iiko_login, f'(?) Подключение...'))
+                except ConnectionError:
+                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(?) Подключение...'))
 
         except Exception as e:
             logging.warning(f'Ошибка: {e}\n\n {traceback.format_exc()}')
 
         finally:
-            logging.info(f"Цикл закончен. Начало нового через {SECONDS_OF_WAITING} секунд...")
+            logging.info(f"Цикл закончен. Начало нового через {SECONDS_OF_WAITING} секунд...\n\n")
             await asyncio.sleep(SECONDS_OF_WAITING)
 
 
