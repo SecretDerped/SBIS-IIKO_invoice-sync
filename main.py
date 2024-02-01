@@ -18,25 +18,31 @@ from io import BytesIO
 from queue import Queue
 from tkinter import ttk
 from iiko_ikon import encoded
+from logging import info as log
 from cryptography.fernet import Fernet
 from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
-console_out = logging.StreamHandler()
-file_log = logging.FileHandler(f"application.log", mode="w")
-logging.basicConfig(handlers=(file_log, console_out), level=logging.INFO,
-                    format='[%(asctime)s | %(levelname)s]: %(message)s')
+log_level = logging.INFO
+search_doc_days = 1
+SECONDS_OF_WAITING = 5
 
-add_window_size = "210x120"
-main_windows_size = "300x380"
 XML_FILEPATH = 'income_doc_cash.xml'
 IIKO_CONN_PATH = 'iiko_cash.json'
 SBIS_CONN_PATH = 'sbis_cash.json'
-CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
-SECONDS_OF_WAITING = 5
+
+add_window_size = "210x120"
+main_windows_size = "300x380"
+
 iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
-search_doc_days = 3
+CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
+
+console_out = logging.StreamHandler()
+file_log = logging.FileHandler(f"application.log", mode="w")
+logging.basicConfig(format='[%(asctime)s | %(levelname)s]: %(message)s',
+                    handlers=(file_log, console_out),
+                    level=log_level)
 
 
 def start_async_loop(loop, event):
@@ -166,7 +172,7 @@ def update_sbis_status(login, status, color):
 
 
 def doc_print(json_doc):
-    logging.info(json.dumps(json_doc, indent=4, sort_keys=True, ensure_ascii=False))
+    log(json.dumps(json_doc, indent=4, sort_keys=True, ensure_ascii=False))
 
 
 def get_digits(string):
@@ -197,9 +203,10 @@ class SABYAccessDenied(Exception):
 class IIKOManager:
     def __init__(self, iiko_connect_list):
         self.connect_list = iiko_connect_list
-        self.iiko_server_address = iiko_server_address
+        self.server_address = iiko_server_address
         self.cryptokey = CRYPTOKEY
         self.login = None
+        self.include_v2 = False
 
     def get_auth(self, password):
         login = self.login
@@ -207,13 +214,13 @@ class IIKOManager:
         url = f'https://{iiko_server_address}:443/resto/api/auth?login={login}&pass={password_hash}'
         res = requests.get(url)
 
-        logging.info(f'Method: get_auth() | Code: {res.status_code} \n')
+        log(f'Method: get_auth() | Code: {res.status_code} \n')
         logging.debug(f'URL: {url} \n'
                       f'Result: {res.text}')
 
         match res.status_code:
             case 200:
-                logging.info(f'Авторизация в IIKO прошла. {login}: вход выполнен.')
+                log(f'Авторизация в IIKO прошла. {login}: вход выполнен.')
                 with open(f"{login}_iiko_token.txt", "w+") as file:
                     iiko_key = res.text
                     file.write(str(iiko_key))
@@ -243,21 +250,24 @@ class IIKOManager:
                 iiko_key = file.read()
                 return {'login': login, 'password': password, 'key': iiko_key}
         except FileNotFoundError:
-            logging.info(f'Аккаунт IIKO - {login}: авторизуемся...')
+            log(f'Аккаунт IIKO - {login}: авторизуемся...')
             iiko_key = self.get_auth(password)
             return {'login': login, 'password': password, 'key': iiko_key}
 
     def get_query(self, method, params=None):
         if params is None:
             params = {}
-        base_url = f'https://{self.iiko_server_address}:443/resto/api/'
+        base_url = f'https://{self.server_address}:443/resto/api/'
+        if self.include_v2:
+            base_url += 'v2/'
+            self.include_v2 = False
         url = base_url + method
         iiko_account = self.get_key()
         params['key'] = iiko_account.get('key')
 
         res = requests.get(url, params)
 
-        logging.info(f'Method: GET {method} | Code: {res.status_code}')
+        log(f'Method: GET {method} | Code: {res.status_code}')
         logging.debug(f'URL: {url} \n'
                       f'Parameters: {params} \n'
                       f'Result: {res.text}')
@@ -316,6 +326,16 @@ class IIKOManager:
                                         'inn': jur_info.get("taxpayerId"),
                                         'kpp': jur_info.get("accountingReasonCode")}
         return {}
+
+    def get_concepts(self):
+        params = {'rootType': 'Conception',
+                  'includeDeleted': False}
+        self.include_v2 = True
+        conceptions_list = json.loads(self.get_query('entities/list', params))
+        conceptions_dict = {}
+        for concept in conceptions_list:
+            conceptions_dict[f'{concept.get("id")}'] = concept.get("name")
+        return None if conceptions_dict == {} else conceptions_dict
 
 
 class SBISManager:
@@ -378,7 +398,7 @@ class SBISManager:
         res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
                             data=json.dumps(payload))
 
-        logging.info(f'Method: {method} | Code: {res.status_code}')
+        log(f'Method: {method} | Code: {res.status_code}')
         logging.debug(f'URL: https://online.sbis.ru/service/ \n'
                       f'Headers: {self.headers}\n'
                       f'Parameters: {params}\n'
@@ -389,7 +409,7 @@ class SBISManager:
                 update_sbis_status(sid['login'], '✔ Подключено', 'blue')
                 return json.loads(res.text)['result']
             case 401:
-                logging.info('Требуется обновление токена.')
+                log('Требуется обновление токена.')
                 time.sleep(1)
                 self.headers['X-SBISSessionID'] = self.auth(sid['login'], sid['password'])
                 res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
@@ -490,89 +510,69 @@ status_label.pack(side=tk.TOP, padx=10, pady=10)
 
 
 async def job(iiko_connect_list, sbis_connection_list):
+    log(f"Запуск цикла. Цикл запускается каждые {SECONDS_OF_WAITING} секунд.")
+    doc_count = 0
     while True:
         try:
-            logging.info("Начало цикла...")
             assert len(sbis_connection_list) > 0, 'Отсутствует аккаунт СБИС'
             for sbis_login in sbis_connection_list.keys():
                 sbis.login = sbis_login
 
             assert len(iiko_connect_list) > 0, 'Отсутствуют IIKO подключения'
             for iiko_login in iiko_connect_list.keys():
+                log(f'Соединение с аккаунтом IIKO: {iiko_login}')
                 iiko.login = iiko_login
                 try:
                     search_date = datetime.now() - timedelta(days=search_doc_days)
                     income_iiko_docs = xmltodict.parse(iiko.search_income_docs(search_date.strftime('%Y-%m-%d')))
-                    if income_iiko_docs['incomingInvoiceDtoes'] is None:
-                        logging.info('Накладные не найдены.')
-                        break
+                    assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'В IIKO нет приходных накладных'
 
                     invoice_docs = income_iiko_docs['incomingInvoiceDtoes']['document']
                     if type(invoice_docs) == dict:
                         invoice_docs = [invoice_docs]
                     for iiko_doc in invoice_docs:
-                        if stop_event.is_set():
-                            break
+                        assert stop_event.is_set() is False, 'Программа завершила работу'
 
                         iiko_doc_num = iiko_doc.get("documentNumber")
+                        log(f'№{iiko_doc_num} обрабатывается...')
+
                         if iiko_doc.get('status') == 'DELETED':
-                            logging.info(f'№{iiko_doc_num} удалён в IIKO. Пропуск... \n')
+                            log(f'Удалён в IIKO. Пропуск... \n')
                             continue
+
+                        is_sole_trader = True
                         match iiko_doc.get('conception'):
                             case None | '2609b25f-2180-bf98-5c1c-967664eea837':
-                                logging.info(f'№{iiko_doc_num} без концепции в IIKO. Пропуск... \n')
+                                log(f'Без концепции в IIKO. Пропуск... \n')
                                 continue
+                            case _, *id: #TODO: Починить разделение на ИП и ООО
+                                concept = iiko.get_concepts()
+                                print(concept)
+                                concept_name = concept.get(f'{id}')
+                                print(concept_name)
+                                if 'ООО' in concept_name:
+                                    is_sole_trader = False
 
                         supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
                         if supplier.get('name') is None:
-                            logging.info(f'№{iiko_doc_num} - мягкий чек. Пропуск...\n')
+                            log(f'Мягкий чек в IIKO. Пропуск...\n')
                             continue
 
                         income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
                         sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
-                        '''else:
-                                logging.info(f'№{iiko_doc_num} найден в СБИС.\n Исправляем документ...')
-                                params = {
-                                    "Документ": {
-                                        # "Тип": "ДокОтгрВх",
-                                        "Идентификатор": sbis_doc["Идентификатор"],
-                                        "Регламент": {"Идентификатор": sbis.regulations_id},
-                                        "Примечание": supplier.get('name'),
-                                        "Ответственный": responsible,
-                                        "НашаОрганизация": {
-                                            "СвЮЛ": {
-                                                "ИНН": org_info.get('inn'),
-                                                "КПП": org_info.get('kpp')}}}}
-                                sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                logging.info(f'№{iiko_doc_num} исправлен в СБИС.')'''
-
+                        is_copy = False
                         if sbis_doc is not None:
-                            if sbis_doc['Расширение']['Проведен'] == 'Да':
-                                logging.info(f'№{iiko_doc_num} уже проведён в СБИС. Пропуск... \n')
+                            if sbis_doc['Примечание'] != '' or sbis_doc['Расширение']['Проведен'] == 'Да':
+                                log(f'Документ уже обработан в СБИС. Пропуск... \n')
                                 continue
+                            log(f'Требуется копия.')
+                            is_copy = True
 
-                            elif sbis_doc['Примечание'] != '':
-                                logging.info(f'№{iiko_doc_num} уже обработан программой в СБИС. Пропуск... \n')
-                                continue
-
-                            else:
-                                logging.info(f'№{iiko_doc_num} найден в СБИС. Исправляем документ...')
-                                org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                                responsible = create_responsible_dict(org_info.get('store_name'))
-                                params = {
-                                    "Документ": {
-                                        "Идентификатор": sbis_doc["Идентификатор"],
-                                        "Примечание": supplier.get('name'),
-                                        "Ответственный": responsible}}
-                                sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                logging.info(f'№{iiko_doc_num} исправлен в СБИС.\n')
-
-                        else:
-                            logging.info(f'№{iiko_doc_num} не найден в СБИС.\n Создаём документ...')
-                            org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                            responsible = create_responsible_dict(org_info.get('store_name'))
-                            with open(XML_FILEPATH, 'w') as file:
-                                file.write(f'''<?xml version="1.0" encoding="WINDOWS-1251" ?>
+                        log(f'Идёт запись в СБИС...')
+                        org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
+                        responsible = create_responsible_dict(org_info.get('store_name'))
+                        with open(XML_FILEPATH, 'w') as file:
+                            file.write(f'''<?xml version="1.0" encoding="WINDOWS-1251" ?>
 <Файл ВерсФорм="5.02">
 
 <СвУчДокОбор>
@@ -581,150 +581,164 @@ async def job(iiko_connect_list, sbis_connection_list):
 
 <Документ ВремИнфПр="9.00.00" ДатаИнфПр="{income_date}" КНД="1175010" НаимЭконСубСост="{supplier.get('name')}">
 <СвДокПТПрКроме>
-  <СвДокПТПр>
-    <НаимДок НаимДокОпр="Товарная накладная" ПоФактХЖ="Документ о передаче товара при торговых операциях"/>
-    <ИдентДок ДатаДокПТ="{income_date}" НомДокПТ="{iiko_doc_num}"/>
-    <СодФХЖ1>
-      <ГрузПолуч ОКПО="06525502">
-        <ИдСв>
-          <СвОрг>
-            <СвЮЛ ИННЮЛ="2311230064" КПП="231001001" НаимОрг="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЛЕАР ГРУПП&quot;"/>
-          </СвОрг>
-        </ИдСв>
-        <Адрес>
-          <АдрИнф АдрТекст="г. Краснодар, ул. им. 40-летия Победы, д. 20, Строение 1, ПОМЕЩЕНИЕ 308, 350042" КодСтр="643"/>
-        </Адрес>
-        <Контакт Тлф="8 (861) 204-05-06" ЭлПочта="dir@le-ar.ru"/>
-        <БанкРекв НомерСчета="40702810512550035771">
-          <СвБанк БИК="044525360" КорСчет="30101810445250000360" НаимБанк="Филиал &quot;Корпоративный&quot; ПАО &quot;Совкомбанк&quot; МОСКВА"/>
-        </БанкРекв>
-      </ГрузПолуч>
-      <Продавец>
-        <ИдСв>
-          <СвОрг>
-            <СвЮЛ ИННЮЛ="{supplier.get('inn')}" НаимОрг="{supplier.get('name')}"/>
-          </СвОрг>
-        </ИдСв>
-        <Адрес>
-          <АдрИнф АдрТекст="{supplier.get('address')}" КодСтр="643"/>
-        </Адрес>
-        <Контакт Тлф="{supplier.get('phone')}" ЭлПочта="{supplier.get('email')}"/>
-        <БанкРекв НомерСчета="{supplier.get('cardNumber')}">
-          <СвБанк/>
-        </БанкРекв>
-      </Продавец>
-      <Покупатель ОКПО="06525502">
-        <ИдСв>
-          <СвОрг>
-            <СвЮЛ ИННЮЛ="2311230064" КПП="231001001" НаимОрг="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЛЕАР ГРУПП&quot;"/>
-          </СвОрг>
-        </ИдСв>
-        <Адрес>
-          <АдрИнф АдрТекст="350042, г. Краснодар, ул. им. 40-летия Победы, д. 20, Строение 1, ПОМЕЩЕНИЕ 308" КодСтр="643"/>
-        </Адрес>
-        <Контакт Тлф="8 (861) 204-05-06" ЭлПочта="dir@le-ar.ru"/>
-        <БанкРекв НомерСчета="40702810512550035771">
-          <СвБанк БИК="044525360" КорСчет="30101810445250000360" НаимБанк="Филиал &quot;Корпоративный&quot; ПАО &quot;Совкомбанк&quot; МОСКВА"/>
-        </БанкРекв>
-      </Покупатель>
-      <Основание НаимОсн="Договор" НомОсн="{supplier.get('inn')}"/>
-      <ИнфПолФХЖ1>
-        <ТекстИнф Значен="{supplier.get('inn')}" Идентиф="ДоговорНомер"/>
-      </ИнфПолФХЖ1>
-    </СодФХЖ1>
-  </СвДокПТПр>      
-  <СодФХЖ2>''')
-                                item_num = 1
-                                total_price = 0
-                                total_without_vat = 0
-                                total_amount = 0
-                                items = iiko_doc['items']['item']
-                                if type(items) is dict:
-                                    items = [items]
-                                for item in items:
-                                    code = item.get("productArticle")
+<СвДокПТПр>
+<НаимДок НаимДокОпр="Товарная накладная" ПоФактХЖ="Документ о передаче товара при торговых операциях"/>
+<ИдентДок ДатаДокПТ="{income_date}" НомДокПТ="{iiko_doc_num}"/>
+<СодФХЖ1>
+  <ГрузПолуч ОКПО="06525502">
+    <ИдСв>
+      <СвОрг>
+        <СвЮЛ ИННЮЛ="2311230064" КПП="231001001" НаимОрг="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЛЕАР ГРУПП&quot;"/>
+      </СвОрг>
+    </ИдСв>
+    <Адрес>
+      <АдрИнф АдрТекст="г. Краснодар, ул. им. 40-летия Победы, д. 20, Строение 1, ПОМЕЩЕНИЕ 308, 350042" КодСтр="643"/>
+    </Адрес>
+    <Контакт Тлф="8 (861) 204-05-06" ЭлПочта="dir@le-ar.ru"/>
+    <БанкРекв НомерСчета="40702810512550035771">
+      <СвБанк БИК="044525360" КорСчет="30101810445250000360" НаимБанк="Филиал &quot;Корпоративный&quot; ПАО &quot;Совкомбанк&quot; МОСКВА"/>
+    </БанкРекв>
+  </ГрузПолуч>
+  <Продавец>
+    <ИдСв>
+      <СвОрг>
+        <СвЮЛ ИННЮЛ="{supplier.get('inn')}" НаимОрг="{supplier.get('name')}"/>
+      </СвОрг>
+    </ИдСв>
+    <Адрес>
+      <АдрИнф АдрТекст="{supplier.get('address')}" КодСтр="643"/>
+    </Адрес>
+    <Контакт Тлф="{supplier.get('phone')}" ЭлПочта="{supplier.get('email')}"/>
+    <БанкРекв НомерСчета="{supplier.get('cardNumber')}">
+      <СвБанк/>
+    </БанкРекв>
+  </Продавец>
+  <Покупатель ОКПО="06525502">
+    <ИдСв>
+      <СвОрг>
+        <СвЮЛ ИННЮЛ="2311230064" КПП="231001001" НаимОрг="ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ &quot;ЛЕАР ГРУПП&quot;"/>
+      </СвОрг>
+    </ИдСв>
+    <Адрес>
+      <АдрИнф АдрТекст="350042, г. Краснодар, ул. им. 40-летия Победы, д. 20, Строение 1, ПОМЕЩЕНИЕ 308" КодСтр="643"/>
+    </Адрес>
+    <Контакт Тлф="8 (861) 204-05-06" ЭлПочта="dir@le-ar.ru"/>
+    <БанкРекв НомерСчета="40702810512550035771">
+      <СвБанк БИК="044525360" КорСчет="30101810445250000360" НаимБанк="Филиал &quot;Корпоративный&quot; ПАО &quot;Совкомбанк&quot; МОСКВА"/>
+    </БанкРекв>
+  </Покупатель>
+  <Основание НаимОсн="Договор" НомОсн="{supplier.get('inn')}"/>
+  <ИнфПолФХЖ1>
+    <ТекстИнф Значен="{supplier.get('inn')}" Идентиф="ДоговорНомер"/>
+  </ИнфПолФХЖ1>
+</СодФХЖ1>
+</СвДокПТПр>      
+<СодФХЖ2>''')
+                            item_num = 1
+                            total_price = 0
+                            total_without_vat = 0
+                            total_amount = 0
+                            items = iiko_doc['items']['item']
+                            if type(items) is dict:
+                                items = [items]
+                            for item in items:
+                                code = item.get("productArticle")
 
-                                    actual_amount = float(item.get('actualAmount', '1'))
-                                    sum = float(item.get('sum', '0'))
-                                    vat_percent = float(item.get("vatPercent", '0'))
-                                    price = float(item.get('price', sum))
-                                    price_without_vat = float(item.get('priceWithoutVat', price))
+                                actual_amount = float(item.get('actualAmount', '1'))
+                                sum = float(item.get('sum', '0'))
+                                vat_percent = float(item.get("vatPercent", '0'))
+                                price = float(item.get('price', sum))
+                                price_without_vat = float(item.get('priceWithoutVat', price))
 
-                                    total_without_vat += sum - (sum * vat_percent)
-                                    total_price += sum
-                                    total_amount += actual_amount
-                                    file.write(f'''
-                                <СвТов КодТов="{code}" НаимЕдИзм="шт" НалСт="без НДС" НеттоПередано="{actual_amount}" НомТов="{item_num}" ОКЕИ_Тов="796" СтБезНДС="{price_without_vat * actual_amount}" СтУчНДС="{sum}" Цена="{price}">
-                                  <ИнфПолФХЖ2 Значен="{code}" Идентиф="КодПоставщика"/>
-                                  <ИнфПолФХЖ2 Значен="{code}" Идентиф="КодПокупателя"/>
-                                  <ИнфПолФХЖ2 Значен="&quot;Type&quot;:&quot;Товар&quot;" Идентиф="ПоляНоменклатуры"/>
-                                  <ИнфПолФХЖ2 Значен="41-01" Идентиф="СчетУчета"/>
-                                </СвТов>''')
-                                    item_num += 1
+                                total_without_vat += sum - (sum * vat_percent)
+                                total_price += sum
+                                total_amount += actual_amount
                                 file.write(f'''
-                                <Всего НеттоВс="{total_amount}" СтБезНДСВс="{total_without_vat}" СтУчНДСВс="{total_price}"/>
-                              </СодФХЖ2>
-                            </СвДокПТПрКроме>
-                            <СодФХЖ3 СодОпер="Перечисленные в документе ценности переданы"/>
-                            </Документ>
+                            <СвТов КодТов="{code}" НаимЕдИзм="шт" НалСт="без НДС" НеттоПередано="{actual_amount}" НомТов="{item_num}" ОКЕИ_Тов="796" СтБезНДС="{price_without_vat * actual_amount}" СтУчНДС="{sum}" Цена="{price}">
+                              <ИнфПолФХЖ2 Значен="{code}" Идентиф="КодПоставщика"/>
+                              <ИнфПолФХЖ2 Значен="{code}" Идентиф="КодПокупателя"/>
+                              <ИнфПолФХЖ2 Значен="&quot;Type&quot;:&quot;Товар&quot;" Идентиф="ПоляНоменклатуры"/>
+                              <ИнфПолФХЖ2 Значен="41-01" Идентиф="СчетУчета"/>
+                            </СвТов>''')
+                                item_num += 1
+                            file.write(f'''
+                            <Всего НеттоВс="{total_amount}" СтБезНДСВс="{total_without_vat}" СтУчНДСВс="{total_price}"/>
+                          </СодФХЖ2>
+                        </СвДокПТПрКроме>
+                        <СодФХЖ3 СодОпер="Перечисленные в документе ценности переданы"/>
+                        </Документ>
 
-                            </Файл>''')
-                            with open(XML_FILEPATH, "rb") as file:
-                                encoded_string = base64.b64encode(file.read())
-                                base64_file = encoded_string.decode('ascii')
+                        </Файл>''')
+                        with open(XML_FILEPATH, "rb") as file:
+                            encoded_string = base64.b64encode(file.read())
+                            base64_file = encoded_string.decode('ascii')
+                        if is_sole_trader:
+                            print('aaaaa')
+                        else:
+                            print('bbb')
+                            
+                        params = {
+                            "Документ": {
+                                "Тип": "ДокОтгрВх",
+                                "Вложение": [{'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}],
+                                "Регламент": {"Идентификатор": sbis.regulations_id},
+                                'Номер': iiko_doc_num,
+                                "Примечание": supplier.get('name'),
+                                "Ответственный": responsible,
+                                "НашаОрганизация": {
+                                    "СвЮЛ": {
+                                        "ИНН": org_info.get('inn'),
+                                        "КПП": org_info.get('kpp'),
+                                    }
+                                }}}
+                        if is_copy:
+                            params["Документ"]['Номер'] = sbis_doc['Номер']
+                            params["Документ"]['Примечание'] += ', копия'
 
+                        agreement = sbis.search_agr(supplier['inn'])
+                        if agreement is None or agreement == 'None':
+                            sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                            log(
+                                f"Договор с ИНН №{supplier['inn']} не найден в СБИС. Создан документ без договора с поставщиком.")
+                        else:
+                            agreement_note = get_digits(agreement['Примечание'])
+                            if agreement_note == '':
+                                agreement_note = '0'
+                            payment_days = int(agreement_note)
+                            deadline = datetime.strptime(income_date, '%d.%m.%Y') + timedelta(
+                                days=payment_days)
+                            deadline_str = datetime.strftime(deadline, '%d.%m.%Y')
+
+                            params['Документ']['Срок'] = deadline_str
+                            params['Документ']['ВидСвязи'] = 'Договор'
+                            params['Документ']['ДокументОснование'] = {
+                                "Документ": {
+                                    'ВидСвязи': 'Договор',
+                                    "Идентификатор": agreement["Идентификатор"]}}
+
+                            new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                            sbis.agreement_connect(agreement["Идентификатор"], new_sbis_doc["Идентификатор"])
+                            log(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
+
+                        if is_copy:
                             params = {
                                 "Документ": {
-                                    "Тип": "ДокОтгрВх",
-                                    "Вложение": [{'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}],
-                                    "Регламент": {"Идентификатор": sbis.regulations_id},
-                                    'Номер': iiko_doc_num,
-                                    "Примечание": supplier.get('name'),
-                                    "Ответственный": responsible,
-                                    "НашаОрганизация": {
-                                        "СвЮЛ": {
-                                            "ИНН": org_info.get('inn'),
-                                            "КПП": org_info.get('kpp'),
-                                        }
-                                    }}}
+                                    "Идентификатор": sbis_doc["Идентификатор"],
+                                    "Примечание": 'Копия внесена'}}
+                            sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                            log(f'№{sbis_doc["Номер"]} помечен в СБИС.')
 
-                            agreement = sbis.search_agr(supplier['inn'])
-                            if agreement is None or agreement == 'None':
-                                sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                logging.info(
-                                    f"Договор с ИНН №{supplier['inn']} не найден.\n"
-                                    f"Создан документ без договора с поставщиком.")
-                            else:
-                                agreement_note = get_digits(agreement['Примечание'])
-                                if agreement_note == '':
-                                    agreement_note = '0'
-                                payment_days = int(agreement_note)
-                                deadline = datetime.strptime(income_date, '%d.%m.%Y') + timedelta(
-                                    days=payment_days)
-                                deadline_str = datetime.strftime(deadline, '%d.%m.%Y')
-
-                                params['Документ']['Срок'] = deadline_str
-                                params['Документ']['ВидСвязи'] = 'Договор'
-                                params['Документ']['ДокументОснование'] = {
-                                    "Документ": {
-                                        'ВидСвязи': 'Договор',
-                                        "Идентификатор": agreement["Идентификатор"]}}
-
-                                sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                sbis.agreement_connect(agreement["Идентификатор"], sbis_doc["Идентификатор"])
-                                logging.info(f"Договор №{supplier['inn']} прикреплён.")
-
-                            os.remove(XML_FILEPATH)
-                            update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
-                            logging.info(f"Накладная №{iiko_doc_num} записана в СБИС.\n")
+                        os.remove(XML_FILEPATH)
+                        update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
+                        doc_count += 1
+                        log(f"Накладная №{iiko_doc_num} из IIKO успешно скопирована в СБИС.\n")
 
                 except NoAuth:
                     update_queue.put(lambda: update_iiko_status(iiko_login, 'Неверный логин/пароль'))
 
                 except Exception as e:
                     update_queue.put(lambda: update_iiko_status(iiko_login, f'(!) Ошибка'))
-                    logging.warning(f'Ошибка в цикле: {e} | {traceback.format_exc()}')
-                    continue
+                    logging.warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
 
                 except ConnectionError:
                     update_queue.put(lambda: update_iiko_status(iiko_login, f'(?) Подключение...'))
@@ -733,7 +747,7 @@ async def job(iiko_connect_list, sbis_connection_list):
             logging.warning(f'Ошибка: {e}\n\n {traceback.format_exc()}')
 
         finally:
-            logging.info(f"Цикл закончен. Начало нового через {SECONDS_OF_WAITING} секунд...\n\n")
+            log(f"Завершение текущего цикла. Обработано {doc_count} документов.\n\n")
             await asyncio.sleep(SECONDS_OF_WAITING)
 
 
