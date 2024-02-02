@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
 log_level = logging.INFO
-search_doc_days = 1
+search_doc_days = 33
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -509,6 +509,17 @@ status_label = tk.Label(root, text="Не подключено")
 status_label.pack(side=tk.TOP, padx=10, pady=10)
 
 
+def get_inn_by_concept(concept_name):
+    # Да, хардкод, но дедлайн сегодня.
+    inn_mapping = {
+        'Мелконова Анастасия': '010507778771',
+        'Каблахова Д.А.': '090702462444',
+        'Мелконов Г.С.': '231216827801',
+    }
+
+    return inn_mapping.get(concept_name)
+
+
 async def job(iiko_connect_list, sbis_connection_list):
     log(f"Запуск цикла. Цикл запускается каждые {SECONDS_OF_WAITING} секунд.")
     doc_count = 0
@@ -540,18 +551,17 @@ async def job(iiko_connect_list, sbis_connection_list):
                             log(f'Удалён в IIKO. Пропуск... \n')
                             continue
 
-                        is_sole_trader = True
-                        match iiko_doc.get('conception'):
-                            case None | '2609b25f-2180-bf98-5c1c-967664eea837':
-                                log(f'Без концепции в IIKO. Пропуск... \n')
-                                continue
-                            case _, *id: #TODO: Починить разделение на ИП и ООО
-                                concept = iiko.get_concepts()
-                                print(concept)
-                                concept_name = concept.get(f'{id}')
-                                print(concept_name)
-                                if 'ООО' in concept_name:
-                                    is_sole_trader = False
+                        concept_id = iiko_doc.get('conception')
+                        if concept_id is None or concept_id == '2609b25f-2180-bf98-5c1c-967664eea837':
+                            log(f'Без концепции в IIKO. Пропуск... \n')
+                            continue
+                        else:
+                            concepts = iiko.get_concepts()
+                            concept_name = concepts.get(f'{concept_id}')
+                            if 'ООО' in concept_name:
+                                is_sole_trader = False
+                            else:
+                                is_sole_trader = True
 
                         supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
                         if supplier.get('name') is None:
@@ -569,8 +579,6 @@ async def job(iiko_connect_list, sbis_connection_list):
                             is_copy = True
 
                         log(f'Идёт запись в СБИС...')
-                        org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                        responsible = create_responsible_dict(org_info.get('store_name'))
                         with open(XML_FILEPATH, 'w') as file:
                             file.write(f'''<?xml version="1.0" encoding="WINDOWS-1251" ?>
 <Файл ВерсФорм="5.02">
@@ -672,11 +680,16 @@ async def job(iiko_connect_list, sbis_connection_list):
                         with open(XML_FILEPATH, "rb") as file:
                             encoded_string = base64.b64encode(file.read())
                             base64_file = encoded_string.decode('ascii')
-                        if is_sole_trader:
-                            print('aaaaa')
+
+                        org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
+                        responsible = create_responsible_dict(org_info.get('store_name'))
+                        if is_sole_trader and get_inn_by_concept(concept_name) is not None:
+                            organisation = {"СвФЛ": {"ИНН": get_inn_by_concept(concept_name),
+                                                     "КодФилиала": org_info.get('kpp')}}
                         else:
-                            print('bbb')
-                            
+                            organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
+                                                     "КПП": org_info.get('kpp')}}
+
                         params = {
                             "Документ": {
                                 "Тип": "ДокОтгрВх",
@@ -685,25 +698,20 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 'Номер': iiko_doc_num,
                                 "Примечание": supplier.get('name'),
                                 "Ответственный": responsible,
-                                "НашаОрганизация": {
-                                    "СвЮЛ": {
-                                        "ИНН": org_info.get('inn'),
-                                        "КПП": org_info.get('kpp'),
-                                    }
-                                }}}
+                                "НашаОрганизация": organisation}}
                         if is_copy:
                             params["Документ"]['Номер'] = sbis_doc['Номер']
                             params["Документ"]['Примечание'] += ', копия'
 
                         agreement = sbis.search_agr(supplier['inn'])
                         if agreement is None or agreement == 'None':
-                            sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                            new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
                             log(
-                                f"Договор с ИНН №{supplier['inn']} не найден в СБИС. Создан документ без договора с поставщиком.")
+                                f"Договор с ИНН №{supplier['inn']} не найден в СБИС. Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
                         else:
                             agreement_note = get_digits(agreement['Примечание'])
                             if agreement_note == '':
-                                agreement_note = '0'
+                                agreement_note = '7'
                             payment_days = int(agreement_note)
                             deadline = datetime.strptime(income_date, '%d.%m.%Y') + timedelta(
                                 days=payment_days)
@@ -731,7 +739,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                         os.remove(XML_FILEPATH)
                         update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
                         doc_count += 1
-                        log(f"Накладная №{iiko_doc_num} из IIKO успешно скопирована в СБИС.\n")
+                        log(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
 
                 except NoAuth:
                     update_queue.put(lambda: update_iiko_status(iiko_login, 'Неверный логин/пароль'))
@@ -747,7 +755,7 @@ async def job(iiko_connect_list, sbis_connection_list):
             logging.warning(f'Ошибка: {e}\n\n {traceback.format_exc()}')
 
         finally:
-            log(f"Завершение текущего цикла. Обработано {doc_count} документов.\n\n")
+            log(f"Завершение текущего цикла. Обработано документов: {doc_count}.\n\n")
             await asyncio.sleep(SECONDS_OF_WAITING)
 
 
