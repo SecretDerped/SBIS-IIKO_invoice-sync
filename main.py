@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
 log_level = logging.INFO
-search_doc_days = 33
+search_doc_days = 14
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -547,8 +547,8 @@ async def job(iiko_connect_list, sbis_connection_list):
                         iiko_doc_num = iiko_doc.get("documentNumber")
                         log(f'№{iiko_doc_num} обрабатывается...')
 
-                        if iiko_doc.get('status') == 'DELETED':
-                            log(f'Удалён в IIKO. Пропуск... \n')
+                        if iiko_doc.get('status') != 'PROCESSED':
+                            log(f'Неактуален в IIKO. Пропуск... \n')
                             continue
 
                         concept_id = iiko_doc.get('conception')
