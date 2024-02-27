@@ -23,8 +23,8 @@ from cryptography.fernet import Fernet
 from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
-log_level = logging.INFO
-search_doc_days = 14
+log_level = logging.DEBUG
+search_doc_days = 2
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -34,7 +34,7 @@ SBIS_CONN_PATH = 'sbis_cash.json'
 add_window_size = "210x120"
 main_windows_size = "300x380"
 
-iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
+iiko_server_address = 'gorod-detei-pyatigorsk.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
 CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
 
@@ -512,9 +512,11 @@ status_label.pack(side=tk.TOP, padx=10, pady=10)
 def get_inn_by_concept(concept_name):
     # Да, хардкод, но дедлайн сегодня.
     inn_mapping = {
+        'Мелконова А. А.': '010507778771',
         'Мелконова Анастасия': '010507778771',
         'Каблахова Д.А.': '090702462444',
         'Мелконов Г.С.': '231216827801',
+        'ИП МЕЛКОНОВ': '231216827801',
     }
 
     return inn_mapping.get(concept_name)
@@ -680,7 +682,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                         with open(XML_FILEPATH, "rb") as file:
                             encoded_string = base64.b64encode(file.read())
                             base64_file = encoded_string.decode('ascii')
-
+                        # TODO КПП не тянется
                         org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
                         responsible = create_responsible_dict(org_info.get('store_name'))
                         if is_sole_trader and get_inn_by_concept(concept_name) is not None:
