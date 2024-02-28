@@ -23,8 +23,8 @@ from cryptography.fernet import Fernet
 from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
-log_level = logging.DEBUG
-search_doc_days = 2
+log_level = logging.INFO
+search_doc_days = 28
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -201,6 +201,11 @@ class SABYAccessDenied(Exception):
 
 
 class IIKOManager:
+    """Для интеграции требуется:
+    - Указывать ИНН и КПП юр. лицам в IIKO. Как своей организации, так и поставщикам.
+    - Код концепции должен совпадать с КПП филиала.
+    - Код подразделения должен быть таким же, как КПП филиала. Необходимо для загрузки накладных как для ИП, так и для ООО.
+    """
     def __init__(self, iiko_connect_list):
         self.connect_list = iiko_connect_list
         self.server_address = iiko_server_address
@@ -339,6 +344,12 @@ class IIKOManager:
 
 
 class SBISManager:
+    """Для нормальной работы необходимо:
+    - Перекачать номенклатуру из IIKO (Бизнес > Каталог > + > Загрузить > Из iiko)
+    - Настроить автопроводку поступлениям (Бизнес > Закупки/Расходы > Настройки > Операции > *Создаём заново, скопировав Поступление, или изменяем существующее* > Проведение > Документ проводить при Сохранении)
+    - Код филиала у ИП должен быть таким же, как КПП филиала (Наши компании > *Выбираем компанию* > Реквизиты > Код филиала)
+    - Создать договор с поставщиком (Документы > Договоры > + > Входящий договор > (Вписываем контрагента, в качестве номера документа вписываем его ИНН, в описании указываем количество дней срока оплаты*)
+    """
     def __init__(self, sbis_connection_list):
         self.cryptokey = CRYPTOKEY
         self.regulations_id = sbis_regulations_id
@@ -682,7 +693,6 @@ async def job(iiko_connect_list, sbis_connection_list):
                         with open(XML_FILEPATH, "rb") as file:
                             encoded_string = base64.b64encode(file.read())
                             base64_file = encoded_string.decode('ascii')
-                        # TODO КПП не тянется
                         org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
                         responsible = create_responsible_dict(org_info.get('store_name'))
                         if is_sole_trader and get_inn_by_concept(concept_name) is not None:
