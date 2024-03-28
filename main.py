@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
 log_level = logging.INFO
-search_doc_days = 28
+search_doc_days = 90
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -34,7 +34,8 @@ SBIS_CONN_PATH = 'sbis_cash.json'
 add_window_size = "210x120"
 main_windows_size = "300x380"
 
-iiko_server_address = 'gorod-detei-pyatigorsk.iiko.it'
+#iiko_server_address = 'gorod-detei-pyatigorsk.iiko.it'
+iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
 CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
 
@@ -344,7 +345,7 @@ class IIKOManager:
 
 
 class SBISManager:
-    """Для нормальной работы необходимо:
+    """Для нормальной работы необходимо:\n
     - Перекачать номенклатуру из IIKO (Бизнес > Каталог > + > Загрузить > Из iiko)
     - Настроить автопроводку поступлениям (Бизнес > Закупки/Расходы > Настройки > Операции > *Создаём заново, скопировав Поступление, или изменяем существующее* > Проведение > Документ проводить при Сохранении)
     - Код филиала у ИП должен быть таким же, как КПП филиала (Наши компании > *Выбираем компанию* > Реквизиты > Код филиала)
