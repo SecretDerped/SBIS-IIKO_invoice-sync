@@ -17,14 +17,14 @@ from PIL import Image
 from io import BytesIO
 from queue import Queue
 from tkinter import ttk
-from iiko_ikon import encoded
+from gui.iiko_ikon import encoded
 from logging import info as log
 from cryptography.fernet import Fernet
 from datetime import datetime, timedelta, date
 from pystray import Icon as TrayIcon, MenuItem
 
-log_level = logging.INFO
-search_doc_days = 14
+log_level = logging.DEBUG
+search_doc_days = 15
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -34,7 +34,6 @@ SBIS_CONN_PATH = 'sbis_cash.json'
 add_window_size = "210x120"
 main_windows_size = "300x380"
 
-# iiko_server_address = 'gorod-detei-pyatigorsk.iiko.it'
 iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
 CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
@@ -199,8 +198,6 @@ def get_digits(string):
 
 
 def create_responsible_dict(store_name):
-    """Принимает название склада IIKO в качестве аргумента и создаёт поле
-    "Ответственный" для СБИС-запроса"""
     if store_name:
         words = store_name.split()
         return {
@@ -221,12 +218,6 @@ class SABYAccessDenied(Exception):
 
 
 class IIKOManager:
-    """Для интеграции требуется:
-    - Указывать ИНН и КПП юр.лицам в IIKO. Как своей организации, так и поставщикам.
-    - Код концепции должен совпадать с КПП филиала.
-    - Код подразделения должен быть как КПП филиала. Необходимо для загрузки накладных как для ИП, так и для ООО.
-    """
-
     def __init__(self, iiko_connect_list):
         self.connect_list = iiko_connect_list
         self.server_address = iiko_server_address
@@ -322,7 +313,6 @@ class IIKOManager:
                 return f'Error {code}. See warning logs.'
 
     def search_income_docs(self, from_date: str):
-        """Ищет приходные накладные IIKO с введённой даты по сегодняшний день."""
         params = {'from': from_date,
                   'to': date.today().strftime('%Y-%m-%d')}
 
@@ -338,7 +328,6 @@ class IIKOManager:
 
             else:
                 return {'name': (supplier.get('name')).replace('"', ''),
-                        #  Если оставить кавычки в имени, XML сломается
                         'inn': supplier.get('taxpayerIdNumber'),
                         'address': supplier.get('address', '-'),
                         'cardNumber': supplier.get('cardNumber', ''),
@@ -347,8 +336,8 @@ class IIKOManager:
 
     def get_org_info_by_store_id(self, store_id):
 
-        store_dict = xmltodict.parse(self.get_query('corporation/stores'))  # dict
-        orgs_dict = xmltodict.parse(self.get_query(f'corporation/departments'))  # dict
+        store_dict = xmltodict.parse(self.get_query('corporation/stores'))
+        orgs_dict = xmltodict.parse(self.get_query(f'corporation/departments'))
 
         for store in store_dict.get("corporateItemDtoes", {}).get("corporateItemDto", []):
 
@@ -363,10 +352,6 @@ class IIKOManager:
                         if organisation.get("id") == parent_id:
                             if organisation.get("type") == "DEPARTMENT":
                                 parent_id = organisation.get("parentId")
-
-                                # return {'store_name': store_name,
-                                #         'inn': organisation.get("taxpayerIdNumber"),
-                                #         'kpp': get_digits(organisation.get("code"))}
 
                             elif organisation.get("type") == "JURPERSON":
                                 jur_info = organisation.get("jurPersonAdditionalPropertiesDto", {})
@@ -393,14 +378,6 @@ class IIKOManager:
 
 
 class SBISManager:
-    """Для нормальной работы необходимо:\n
-    - Перекачать номенклатуру из IIKO (Бизнес > Каталог > + > Загрузить > Из iiko)
-    - Настроить автопроводку поступлениям (Бизнес > Закупки/Расходы > Настройки > Операции > *Создаём заново, скопировав Поступление, или изменяем существующее* > Проведение > Документ проводить при Сохранении)
-    - Код филиала у ИП должен быть таким же, как КПП филиала (Наши компании > *Выбираем компанию* > Реквизиты > Код филиала)
-    - Создать договор с поставщиком (Документы > Договоры > + > Входящий договор > (Вписываем контрагента, в качестве номера документа вписываем его ИНН, в описании указываем количество дней срока оплаты*)
-    - Создать склады и сотрудника на каждый склад, ФИО которых будет совпадать с его складом и прикрепить их в качестве ответственных, а также в списке "Со складом работают" вместе с нужной организацией
-    """
-
     def __init__(self, sbis_connection_list):
         self.cryptokey = CRYPTOKEY
         self.regulations_id = sbis_regulations_id
@@ -503,10 +480,6 @@ class SBISManager:
             return res['Документ'][0]
 
     def search_agr(self, inn):
-        """Ищет договор в СБИСе по номеру документа.
-        В качестве номера договора используется ИНН поставщика.
-        ИНН: Состоит из 10-и или 12-и цифр строкой"""
-
         if inn is not None:
             assert any(map(str.isdigit, inn)), 'СБИС не сможет найти договор по номеру, в котором нет цифр'
 
@@ -582,7 +555,6 @@ status_label.pack(side=tk.TOP, padx=10, pady=10)
 
 
 def get_inn_by_concept(concept_name):
-    # Да, хардкод, но дедлайн сегодня.
     inn_mapping = {'Мелконова А. А.': '010507778771',
                    'Мелконова Анастасия': '010507778771',
                    'Каблахова Д.А.': '090702462444',
@@ -770,22 +742,19 @@ async def job(iiko_connect_list, sbis_connection_list):
                             responsible = create_responsible_dict(org_info.get('store_name'))
 
                             if is_sole_trader and get_inn_by_concept(concept_name) is not None:
-                                organisation = {"СвФЛ": {"ИНН": get_inn_by_concept(concept_name),
-                                                         "КодФилиала": org_info.get('kpp')}}
+                                organisation = {"СвФЛ": {"ИНН": get_inn_by_concept(concept_name)}}
                             else:
                                 organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
                                                          "КПП": org_info.get('kpp')}}
 
-                            params = {"Документ":
-                                          {"Тип": "ДокОтгрВх",
-                                           "Регламент": {"Идентификатор": sbis.regulations_id},
-                                           'Номер': iiko_doc_num,
-                                           "Примечание": supplier.get('name'),
-                                           "Ответственный": responsible,
-                                           "НашаОрганизация": organisation,
-                                           "Вложение": [
-                                               {'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}
-                                                        ]}}
+                            params = {"Документ": {"Тип": "ДокОтгрВх",
+                                                   "Регламент": {"Идентификатор": sbis.regulations_id},
+                                                   'Номер': iiko_doc_num,
+                                                   "Примечание": supplier.get('name'),
+                                                   "Ответственный": responsible,
+                                                   "НашаОрганизация": organisation,
+                                                   "Вложение": [{'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}]
+                                                   }}
 
                             if is_copy:
                                 params["Документ"]['Номер'] = sbis_doc['Номер']
