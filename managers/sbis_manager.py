@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import time
@@ -71,6 +72,12 @@ class SBISManager:
 
         res = requests.post('https://online.sbis.ru/service/', headers=self.headers,
                             data=json.dumps(payload))
+
+        logging.info(f'Method: {method} | Code: {res.status_code}')
+        logging.debug(f'URL: https://online.sbis.ru/service/ \n'
+                      f'Headers: {self.headers}\n'
+                      f'Parameters: {params}\n'
+                      f'Result: {json.loads(res.text)}')
 
         match res.status_code:
             case 200:

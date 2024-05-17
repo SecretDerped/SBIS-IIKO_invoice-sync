@@ -1,6 +1,6 @@
 {
-  "log_level": "INFO",
-  "search_doc_days": 15,
+  "log_level": "DEBUG",
+  "search_doc_days": 5,
   "seconds_of_waiting": 5,
   "xml_filepath": "income_doc_cash.xml",
   "iiko_conn_path": "iiko_cash.json",
