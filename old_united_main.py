@@ -98,7 +98,7 @@ def process_queue():
         update_action = update_queue.get()
         update_action()
 
-    root.after(100, process_queue)
+    root.after(400, process_queue)
 
 
 def remove_connection():
@@ -160,6 +160,32 @@ def create_connection_window(title, is_sbis=False):
 
     submit_button = tk.Button(add_window, text=submit_button_text, command=command_action)
     submit_button.pack()
+
+
+def show_error_window(name):
+    error_window = tk.Toplevel(root)
+    error_window.title("Ошибка данных")
+    error_window.geometry("300x150")
+    error_label = tk.Label(error_window, text=f"Ошибка: Некорректные данные поставщика {name}.\n"
+                                              f"Исправьте данные и нажмите [ Продолжить ].", fg="red")
+    error_label.pack(pady=20)
+
+    continue_button = tk.Button(error_window, text="Продолжить", command=error_window.destroy)
+    continue_button.pack(pady=10)
+
+    root.wait_window(error_window)
+
+
+def validate_supplier(supplier):
+    inn = supplier.get('inn', '')
+    kpp = supplier.get('kpp', '')
+
+    if len(inn) == 12 and (kpp == '' or kpp is None):
+        return True
+    elif len(inn) == 10 and len(kpp) == 9:
+        return True
+    else:
+        return False
 
 
 def on_submit_sbis(login, password, window):
@@ -591,6 +617,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                 iiko.login = iiko_login
 
                 try:
+                    concepts = iiko.get_concepts()
                     search_date = datetime.now() - timedelta(days=search_doc_days)
                     income_iiko_docs = xmltodict.parse(iiko.search_income_docs(search_date.strftime('%Y-%m-%d')))
                     assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'В IIKO нет приходных накладных'
@@ -616,30 +643,28 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 continue
 
                             else:
-                                concepts = iiko.get_concepts()
                                 concept_name = concepts.get(f'{concept_id}')
 
-                                if 'ООО' in concept_name:
+                                if 'ооо' in concept_name.lower():
                                     is_sole_trader = False
                                 else:
                                     is_sole_trader = True
 
                             supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
+
+                            if not validate_supplier(supplier):
+                                show_error_window()
+
                             if supplier.get('name') is None:
                                 log(f'Мягкий чек в IIKO. Пропуск...\n')
                                 continue
 
                             income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
                             sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
-                            # is_copy = False
 
                             if sbis_doc:
-                                # if sbis_doc['Примечание'] != '' or sbis_doc['Расширение']['Проведен'] == 'Да':
                                 log(f'Документ уже обработан в СБИС. Пропуск... \n')
                                 continue
-
-                                # log(f'Требуется копия.')
-                                # is_copy = True
 
                             log(f'Идёт запись в СБИС...')
 
@@ -771,10 +796,6 @@ async def job(iiko_connect_list, sbis_connection_list):
                                                        {'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}]
                                                    }}
 
-                            # if is_copy:
-                            #    params["Документ"]['Номер'] = sbis_doc['Номер']
-                            #    params["Документ"]['Примечание'] += ', копия'
-
                             agreement = sbis.search_agr(supplier['inn'])
 
                             if agreement is None or agreement == 'None':
@@ -805,15 +826,6 @@ async def job(iiko_connect_list, sbis_connection_list):
 
                                 log(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
 
-                                # if is_copy:
-                                # params = {"Документ": {
-                                #    "Идентификатор": sbis_doc["Идентификатор"],
-                                #    "Примечание": 'Копия внесена'}}
-
-                                # sbis.main_query("СБИС.ЗаписатьДокумент", params)
-
-                                # log(f'№{sbis_doc["Номер"]} помечен в СБИС.')
-
                             os.remove(XML_FILEPATH)
 
                             update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
@@ -843,7 +855,7 @@ async def job(iiko_connect_list, sbis_connection_list):
             await asyncio.sleep(SECONDS_OF_WAITING)
 
 
-root.after(100, process_queue)
+root.after(400, process_queue)
 
 stop_event = threading.Event()
 new_loop = asyncio.new_event_loop()
