@@ -132,4 +132,3 @@ class IIKOManager:
             conceptions_dict[f'{concept.get("id")}'] = concept.get("name")
 
         return None if conceptions_dict == {} else conceptions_dict
-
