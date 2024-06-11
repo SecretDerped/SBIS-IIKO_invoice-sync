@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, date
 from ttkbootstrap.toast import ToastNotification
 
 log_level = logging.DEBUG
-search_doc_days = 100
+search_doc_days = 150
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -36,7 +36,7 @@ SBIS_CONN_PATH = 'sbis_cash.json'
 
 add_window_size = "210x230"
 main_windows_size = "340x490"
-error_windows_size = "440x300"
+error_windows_size = "440x410"
 
 iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
@@ -100,7 +100,7 @@ def exit_program():
 
 @atexit.register
 def cleanup():
-    print("Завершение работы и освобождение ресурсов...")
+    log("Завершение работы и освобождение ресурсов...")
 
 
 def save_data(data, path):
@@ -327,8 +327,8 @@ def error(text):
 
     # Использование Text виджета для выделяемого текста с серым фоном
     error_text = tk.Text(inner_frame,
-                         height=10,
-                         width=40,
+                         height=16,
+                         width=46,
                          wrap='word',
                          fg="red",
                          font=custom_font,
@@ -488,9 +488,9 @@ class IIKOManager:
         res = requests.get(url, params)
 
         log(f'Method: GET {method} | Code: {res.status_code}')
-        # logging.debug(f'URL: {url} \n'
-        #              f'Parameters: {params} \n'
-        #              f'Result: {res.text}')
+        logging.debug(f'URL: {url} \n'
+                      f'Parameters: {params} \n'
+                      f'Result: {res.text}')
 
         match res.status_code:
 
@@ -538,10 +538,12 @@ class IIKOManager:
                    'phone': supplier.get('phone', '-'),
                    'note': supplier.get('note')}
 
-            if res.get('note'):
-                kpp_pattern = r"КПП: (\d{9})"
-                match = re.search(kpp_pattern, res['note'])
-                res['kpp'] = match.group(1)
+            note = res.get('note')
+            if note:
+                kpp_pattern = r"КПП:(\d{9})"
+                match = re.search(kpp_pattern, note.replace(' ', ''))
+                if match:
+                    res['kpp'] = match.group(1)
 
             return res
 
@@ -689,10 +691,7 @@ class SBISManager:
                              "Тип": doc_type}}
         res = self.main_query("СБИС.СписокДокументов", params)
 
-        if len(res['Документ']) == 0:
-            return None
-        else:
-            return res['Документ']
+        return None if len(res['Документ']) == 0 else res['Документ'][0]
 
     def search_agr(self, inn):
         if inn is not None:
@@ -719,6 +718,16 @@ class SBISManager:
                         "Идентификатор": doc_id}}}}
 
         self.main_query("СБИС.ЗаписатьДокумент", params)
+
+    def get_today_docs(self, income_date, doc_type):
+
+        params = {"Фильтр": {"ДатаС": income_date,
+                             "ДатаПо": income_date,
+                             "Тип": doc_type,
+                             "Навигация": {"РазмерСтраницы": '200'}}}
+
+        res = self.main_query("СБИС.СписокДокументов", params)
+        return None if len(res['Документ']) == 0 else res['Документ']
 
 
 root = ttkb.Window(themename="journal", title="Соединения IIKO")
@@ -826,6 +835,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                                     is_sole_trader = True
 
                             supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
+                            log(supplier)
 
                             if supplier.get('name') is None:
                                 log(f'Мягкий чек в IIKO. Пропуск...\n')
@@ -838,13 +848,15 @@ async def job(iiko_connect_list, sbis_connection_list):
 
                                 if stop_event.is_set():
                                     break
-
-                                message = (f"Некорректные данные поставщика в IIKO:\n\n"
-                                           f"{supplier.get('name')}\n\n"
-                                           f"Необходимо прописать ИНН для физ. лиц\n"
-                                           f"или ИНН и КПП для юр. лиц.\n\n"
-                                           f"Исправьте данные и нажмите\n"
-                                           f"[ Продолжить обработку ]")
+                                message = (f"Некорректные данные поставщика в IIKO:\n"
+                                           f"{supplier.get('name')}\n"
+                                           f"ИНН: {supplier.get('inn', 'Не заполнено')}\n"
+                                           f"КПП: {supplier.get('kpp', '')}\n\n"
+                                           f"Корректно пропишите ИНН для физ. лиц\n"
+                                           f"Для юр. лиц впишите КПП в карточке поставщика во вкладке \"Дополнительные сведения\" в белом прямоугольнике для текста\n"
+                                           f"в формате \"КПП: 123456789\".\n\n"
+                                           f"Исправьте данные, подождите полминуты, и нажмите\n"
+                                           f"[ Продолжить обработку ]\n")
                                 error_result = error(message)
 
                                 if stop_event.is_set():
@@ -966,23 +978,15 @@ async def job(iiko_connect_list, sbis_connection_list):
 
                             </Файл>''')
 
-                            today_docs = sbis.main_query("СБИС.СписокДокументов", {"Фильтр":
-                                                                                       {"ДатаС": income_date,
-                                                                                        "ДатаПо": income_date,
-                                                                                        "Тип": 'ДокОтгрВх',
-                                                                                        "Навигация": {
-                                                                                            "РазмерСтраницы": '200'}}})
-
                             # Ищет документ в СБИС с такой же суммой и той же датой
                             is_copy = False
+                            today_docs = sbis.get_today_docs(income_date, 'ДокОтгрВх')
                             for sbis_doc in today_docs:
 
-                                doc = sbis_doc.get('Документ', {'': ''})
-                                sbis_sum = doc.get('Сумма', '0')
+                                sbis_sum = sbis_doc.get('Сумма', '0')
 
                                 if sbis_sum == total_price:
-                                    doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get('НазваниеПолное',
-                                                                                            'Неизвестный')
+                                    sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get('НазваниеПолное', 'Неизвестный')
 
                                     passed = error(f'''Обнаружен похожий документ:
                                           В IIKO: {income_date} / От {supplier.get('name')} на сумму {total_price}\n
