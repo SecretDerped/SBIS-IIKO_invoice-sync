@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, date
 from ttkbootstrap.toast import ToastNotification
 
 log_level = logging.DEBUG
-search_doc_days = 150
+search_doc_days = 32
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -488,9 +488,9 @@ class IIKOManager:
         res = requests.get(url, params)
 
         log(f'Method: GET {method} | Code: {res.status_code}')
-        logging.debug(f'URL: {url} \n'
-                      f'Parameters: {params} \n'
-                      f'Result: {res.text}')
+        #logging.debug(f'URL: {url} \n'
+        #              f'Parameters: {params} \n'
+        #              f'Result: {res.text}')
 
         match res.status_code:
 
@@ -674,7 +674,7 @@ class SBISManager:
                 return json.loads(res.text)['result']
 
             case 500:
-                status_label.config(text=f'! Ошибка ! {sid["login"]}', fg="red")
+                status_label.config(text=f'! Ошибка ! {sid["login"]}')
 
                 text = f"Ошибка в подключении к СБИС. Сервер недоступен. Код 500",
                 show_notification(text)
@@ -823,12 +823,14 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 continue
 
                             concept_id = iiko_doc.get('conception')
+                            log(f"""{concept_id = }""")
                             if concept_id is None or concept_id == '2609b25f-2180-bf98-5c1c-967664eea837':
                                 log(f'Без концепции в IIKO. Пропуск... \n')
                                 continue
 
                             else:
                                 concept_name = concepts.get(f'{concept_id}')
+                                log(f"""{concept_name = }""")
                                 if 'ооо' in concept_name.lower():
                                     is_sole_trader = False
                                 else:
@@ -837,7 +839,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                             supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
                             log(supplier)
 
-                            if supplier.get('name') is None:
+                            if supplier.get('name') is None or supplier.get('name').lower() == 'рынок':
                                 log(f'Мягкий чек в IIKO. Пропуск...\n')
                                 continue
 
@@ -851,7 +853,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 message = (f"Некорректные данные поставщика в IIKO:\n"
                                            f"{supplier.get('name')}\n"
                                            f"ИНН: {supplier.get('inn', 'Не заполнено')}\n"
-                                           f"КПП: {supplier.get('kpp', '')}\n\n"
+                                           f"Доп. сведения: {supplier.get('note', '')}\n\n"
                                            f"Корректно пропишите ИНН для физ. лиц\n"
                                            f"Для юр. лиц впишите КПП в карточке поставщика во вкладке \"Дополнительные сведения\" в белом прямоугольнике для текста\n"
                                            f"в формате \"КПП: 123456789\".\n\n"
@@ -986,11 +988,11 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 sbis_sum = sbis_doc.get('Сумма', '0')
 
                                 if sbis_sum == total_price:
-                                    sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get('НазваниеПолное', 'Неизвестный')
+                                    sbis_name = sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get('НазваниеПолное', 'Неизвестный')
 
                                     passed = error(f'''Обнаружен похожий документ:
                                           В IIKO: {income_date} / От {supplier.get('name')} на сумму {total_price}\n
-                                          В СБИС: {income_date} / От {supplier.get('name')} на сумму {total_price}''')
+                                          В СБИС: {income_date} / От {sbis_name} на сумму {sbis_sum}''')
 
                                     if passed:
                                         is_copy = True
@@ -1026,7 +1028,12 @@ async def job(iiko_connect_list, sbis_connection_list):
                             agreement = sbis.search_agr(supplier['inn'])
 
                             if agreement is None or agreement == 'None':
-                                new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                                try:
+                                    new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                                except AttributeError:
+                                    error(f'''Ошибка в номенклатуре. Добавьте в СБИС позиции из IIKO:\n\n
+                                    Бизнес - Каталог - Нажмите на [ + ] - Загрузить - Выгрузка номенклатуры из IIKO''')
+                                    pass
 
                                 log(f"Договор с ИНН №{supplier['inn']} не найден в СБИС."
                                     f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
@@ -1047,11 +1054,22 @@ async def job(iiko_connect_list, sbis_connection_list):
                                     "Документ": {
                                         'ВидСвязи': 'Договор',
                                         "Идентификатор": agreement["Идентификатор"]}}
+                                try:
+                                    new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
+                                    sbis.agreement_connect(agreement["Идентификатор"], new_sbis_doc["Идентификатор"])
 
-                                new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                sbis.agreement_connect(agreement["Идентификатор"], new_sbis_doc["Идентификатор"])
-
-                                log(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
+                                    log(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
+                                except AttributeError:
+                                    error(f'Ошибка в номенклатуре.\n'
+                                          f'Добавьте в СБИС позиции из IIKO:\n\n'
+                                          f'[ Бизнес ]\n'
+                                          f'[ Каталог ]\n'
+                                          f'[ + ]\n'
+                                          f'[ Загрузить    > ]\n'
+                                          f'[ Выгрузка номенклатуры из IIKO ]\n\n\n'
+                                          f'В СБИС справа внизу появится таймер, показывающий прогресс переноса позиций.\n'
+                                          f'Подождите, пока всё не синхронизируется, и нажмите [ Продолжить обработку ]')
+                                    pass
 
                             os.remove(XML_FILEPATH)
 
