@@ -26,8 +26,8 @@ from cryptography.fernet import Fernet
 from datetime import datetime, timedelta, date
 from ttkbootstrap.toast import ToastNotification
 
-log_level = logging.DEBUG
-search_doc_days = 32
+log_level = logging.WARNING
+search_doc_days = 31
 SECONDS_OF_WAITING = 5
 
 XML_FILEPATH = 'income_doc_cash.xml'
@@ -44,7 +44,7 @@ CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
 
 console_out = logging.StreamHandler()
 file_log = logging.FileHandler(f"application.log", mode="w")
-logging.basicConfig(format='[%(asctime)s | %(levelname)s]: %(message)s',
+logging.basicConfig(format='[%(asctime)s] | %(message)s',
                     handlers=(file_log, console_out),
                     level=log_level)
 
@@ -252,7 +252,11 @@ def create_connection_window(title, is_sbis=False):
 
 def validate_supplier(supplier):
     inn = supplier.get('inn', '')
+    if inn is None:
+        inn = ''
     kpp = supplier.get('kpp', '')
+    if kpp is None:
+        inn = ''
 
     if len(inn) == 12 and (kpp == '' or kpp is None):
         return True
@@ -351,6 +355,8 @@ def error(text):
     continue_button = ttkb.Button(button_frame, text="Пропустить документ", command=on_continue,
                                   bootstyle=(DANGER, OUTLINE))
     continue_button.pack(side=tk.LEFT, padx=10)
+
+    logging.warning(f'Уведомление об ошибке: {text}')
 
     show_notification(text)
 
@@ -785,7 +791,7 @@ def get_inn_by_concept(concept_name):
 
 
 async def job(iiko_connect_list, sbis_connection_list):
-    log(f"Запуск цикла. Цикл запускается каждые {SECONDS_OF_WAITING} секунд.")
+    logging.warning(f"Запуск цикла. Цикл запускается каждые {SECONDS_OF_WAITING} секунд.")
     doc_count = 0
 
     while not stop_event.is_set():
@@ -811,21 +817,21 @@ async def job(iiko_connect_list, sbis_connection_list):
                     if type(invoice_docs) == dict:
                         invoice_docs = [invoice_docs]
 
-                    for iiko_doc in invoice_docs:
+                    for iiko_doc in reversed(invoice_docs):
                         assert stop_event.is_set() is False, 'Программа завершила работу'
 
                         try:
-                            iiko_doc_num = iiko_doc.get("documentNumber")
-                            log(f'№{iiko_doc_num} обрабатывается...')
+                            iiko_doc_num = iiko_doc.get("documentNumber").replace(' ', '')
+                            logging.warning(f'№{iiko_doc_num} от {iiko_doc.get("incomingDate")} обрабатывается...')
 
                             if iiko_doc.get('status') != 'PROCESSED':
-                                log(f'Неактуален в IIKO. Пропуск... \n')
+                                logging.warning(f'Неактуален в IIKO. Пропуск... \n')
                                 continue
 
                             concept_id = iiko_doc.get('conception')
                             log(f"""{concept_id = }""")
                             if concept_id is None or concept_id == '2609b25f-2180-bf98-5c1c-967664eea837':
-                                log(f'Без концепции в IIKO. Пропуск... \n')
+                                logging.warning(f'Без концепции в IIKO. Пропуск... \n')
                                 continue
 
                             else:
@@ -840,7 +846,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                             log(supplier)
 
                             if supplier.get('name') is None or supplier.get('name').lower() == 'рынок':
-                                log(f'Мягкий чек в IIKO. Пропуск...\n')
+                                logging.warning(f'Мягкий чек в IIKO. Пропуск...\n')
                                 continue
 
                             if stop_event.is_set():
@@ -872,7 +878,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                             sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
 
                             if sbis_doc:
-                                log(f'Документ уже обработан в СБИС. Пропуск... \n')
+                                logging.warning(f'Документ уже обработан в СБИС. Пропуск... \n')
                                 continue
 
                             with open(XML_FILEPATH, 'w') as file:
@@ -1030,13 +1036,15 @@ async def job(iiko_connect_list, sbis_connection_list):
                             if agreement is None or agreement == 'None':
                                 try:
                                     new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
+
+                                    log(f"Договор с ИНН №{supplier['inn']} не найден в СБИС."
+                                        f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
+
                                 except AttributeError:
                                     error(f'''Ошибка в номенклатуре. Добавьте в СБИС позиции из IIKO:\n\n
                                     Бизнес - Каталог - Нажмите на [ + ] - Загрузить - Выгрузка номенклатуры из IIKO''')
                                     pass
 
-                                log(f"Договор с ИНН №{supplier['inn']} не найден в СБИС."
-                                    f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
                             else:
                                 agreement_note = get_digits(agreement['Примечание'])
 
@@ -1076,7 +1084,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                             update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
 
                             doc_count += 1
-                            log(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
+                            logging.warning(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
 
                         except Exception as e:
                             logging.warning(f'Ошибка при обработке документа: {e} | {traceback.format_exc()}')
