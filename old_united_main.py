@@ -26,19 +26,21 @@ from cryptography.fernet import Fernet
 from datetime import datetime, timedelta, date
 from ttkbootstrap.toast import ToastNotification
 
-log_level = logging.WARNING
 search_doc_days = 31
-SECONDS_OF_WAITING = 5
+log_level = logging.INFO
+iiko_server_address = 'city-kids-ooo-perezagruzka-co.iiko.it'
+#iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
+CONCEPT_IGNORE_LIST = ['ООО "Город детей"', "Каблахова Д.А.", 'ООО "Планета-М"', "ИП Андреев И.В."]
+INN_IGNORE_LIST = ['2311368256']
+main_title = 'Соединения для ООО "Перезагрузка"'
 
+SECONDS_OF_WAITING = 5
 XML_FILEPATH = 'income_doc_cash.xml'
 IIKO_CONN_PATH = 'iiko_cash.json'
 SBIS_CONN_PATH = 'sbis_cash.json'
-
 add_window_size = "210x230"
 main_windows_size = "340x490"
 error_windows_size = "440x410"
-
-iiko_server_address = 'city-kids-pro-fashion-co.iiko.it'
 sbis_regulations_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
 CRYPTOKEY = Fernet(b'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c=')
 
@@ -89,7 +91,7 @@ def exit_program():
         if t is threading.main_thread():
             continue  # Игнорируем главный поток
         if t.is_alive():
-            print(f'Ожидание завершения потока: {t.name}')
+            log(f'Ожидание завершения потока: {t.name}')
             t.join()
 
     # Полное закрытие приложения
@@ -494,9 +496,9 @@ class IIKOManager:
         res = requests.get(url, params)
 
         log(f'Method: GET {method} | Code: {res.status_code}')
-        #logging.debug(f'URL: {url} \n'
-        #              f'Parameters: {params} \n'
-        #              f'Result: {res.text}')
+        logging.debug(f'URL: {url} \n'
+                      f'Parameters: {params} \n'
+                      f'Result: {res.text}')
 
         match res.status_code:
 
@@ -736,7 +738,7 @@ class SBISManager:
         return None if len(res['Документ']) == 0 else res['Документ']
 
 
-root = ttkb.Window(themename="journal", title="Соединения IIKO")
+root = ttkb.Window(themename="journal", title=main_title)
 root.geometry(main_windows_size)
 root.protocol("WM_DELETE_WINDOW", on_root_close)
 
@@ -744,6 +746,9 @@ iiko_connect = load_data(IIKO_CONN_PATH)
 sbis_connect = load_data(SBIS_CONN_PATH)
 iiko = IIKOManager(iiko_connect)
 sbis = SBISManager(sbis_connect)
+sbis_Perezagruzka = sbis
+sbis_PlanetaM = SBISManager({"\u041f\u043b\u0430\u043d\u0435\u0442\u0430\u041c": "gAAAAABm4axW8TsxHcLedsJbfrb6MQshdYKORnNz5hMM26LthUIGFySKGZFXPdrHn6_qlARAFhruvT7sKX7VIhkK3DlNQhly4w=="})
+sbis_Andreev = SBISManager({"\u0410\u043d\u0434\u0440\u0435\u0435\u0432\u0418\u0412": "gAAAAABm4a8YZfn6V7y3yz1cuLjIYBTJbQTMHYHKC74Z4E9BUXWrmcEFKrurXdoFs6ipw4N28xvKCNMY4i50UHxSCiUnBQnjmw=="})
 
 icon_data = base64.b64decode(encoded)
 iiko_icon = Image.open(BytesIO(icon_data))
@@ -780,12 +785,16 @@ status_label = ttkb.Label(root, text="Не подключено")
 status_label.pack(side=tk.TOP, padx=10, pady=0)
 
 
+# ЕСЛИ ВНЕСЕНА НОВАЯ ОРГАНИЗАЦИЯ, НАДО В ТОЧНОСТИ ДО ПРОБЕЛОВ ВНЕСТИ СЮДА ИМЯ КОНЦЕПЦИИ
 def get_inn_by_concept(concept_name):
-    inn_mapping = {'Мелконова А. А.': '010507778771',
+    inn_mapping = {'Мелконова А.А.': '010507778771',
                    'Мелконова Анастасия': '010507778771',
                    'Каблахова Д.А.': '090702462444',
                    'Мелконов Г.С.': '231216827801',
-                   'ИП МЕЛКОНОВ': '231216827801'}
+                   'ИП МЕЛКОНОВ': '231216827801',
+                   'ИП Журавлев С.С.': '232910490605',
+                   'Богданов М.А.': '010102511000',
+                   'ИП Андреев И.В.': '592007906504'}
 
     return inn_mapping.get(concept_name)
 
@@ -793,7 +802,6 @@ def get_inn_by_concept(concept_name):
 async def job(iiko_connect_list, sbis_connection_list):
     logging.warning(f"Запуск цикла. Цикл запускается каждые {SECONDS_OF_WAITING} секунд.")
     doc_count = 0
-
     while not stop_event.is_set():
         try:
             assert len(sbis_connection_list) > 0, 'Отсутствует аккаунт СБИС'
@@ -837,6 +845,11 @@ async def job(iiko_connect_list, sbis_connection_list):
                             else:
                                 concept_name = concepts.get(f'{concept_id}')
                                 log(f"""{concept_name = }""")
+
+                                if concept_name in CONCEPT_IGNORE_LIST:
+                                    logging.warning(f'Концепция в чёрном списке. Пропуск... \n')
+                                    continue
+
                                 if 'ооо' in concept_name.lower():
                                     is_sole_trader = False
                                 else:
@@ -994,7 +1007,8 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 sbis_sum = sbis_doc.get('Сумма', '0')
 
                                 if sbis_sum == total_price:
-                                    sbis_name = sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get('НазваниеПолное', 'Неизвестный')
+                                    sbis_name = sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get(
+                                        'НазваниеПолное', 'Неизвестный')
 
                                     passed = error(f'''Обнаружен похожий документ:
                                           В IIKO: {income_date} / От {supplier.get('name')} на сумму {total_price}\n
@@ -1013,7 +1027,9 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 base64_file = encoded_string.decode('ascii')
 
                             org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                            responsible = create_responsible_dict(org_info.get('store_name'))
+                            # TODO: Ответсвенный снесён. Склад не учитывается. Крепится ближайший
+                            # responsible = create_responsible_dict(org_info.get('store_name'))
+
                             org_inn = get_inn_by_concept(concept_name)
                             if is_sole_trader and org_inn is not None:
                                 organisation = {"СвФЛ": {"ИНН": org_inn}}
@@ -1021,17 +1037,32 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
                                                          "КПП": org_info.get('kpp')}}
 
+                                if organisation["СвЮЛ"]["ИНН"] in INN_IGNORE_LIST:
+                                    log('Это внутреннее перемещение.')
+                                    continue
+
                             params = {"Документ": {"Тип": "ДокОтгрВх",
                                                    "Регламент": {"Идентификатор": sbis.regulations_id},
                                                    'Номер': iiko_doc_num,
                                                    "Примечание": supplier.get('name'),
-                                                   "Ответственный": responsible,
+                                                   # TODO: Ответсвенный снесён. Склад не учитывается. Крепится ближайший
+                                                   # "Ответственный": responsible,
                                                    "НашаОрганизация": organisation,
                                                    "Вложение": [
                                                        {'Файл': {'Имя': XML_FILEPATH, 'ДвоичныеДанные': base64_file}}]
                                                    }}
 
                             agreement = sbis.search_agr(supplier['inn'])
+                            error_message = (f'Ошибка в номенклатуре.\n'
+                                             f'Добавьте в СБИС позиции из IIKO:\n\n'
+                                             f'[ Бизнес ]\n'
+                                             f'[ Каталог ]\n'
+                                             f'[ + ]\n'
+                                             f'[ Загрузить    > ]\n'
+                                             f'[ Выгрузка номенклатуры из IIKO ]\n\n\n'
+                                             f'В СБИС справа внизу появится таймер, показывающий прогресс переноса позиций.\n'
+                                             f'Подождите, пока всё не синхронизируется, и нажмите\n[ Продолжить обработку ]')
+                            #error_message = (f'Ошибка. Зафиксировано в логах. Свяжитесь с администратором.')
 
                             if agreement is None or agreement == 'None':
                                 try:
@@ -1041,8 +1072,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                                         f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
 
                                 except AttributeError:
-                                    error(f'''Ошибка в номенклатуре. Добавьте в СБИС позиции из IIKO:\n\n
-                                    Бизнес - Каталог - Нажмите на [ + ] - Загрузить - Выгрузка номенклатуры из IIKO''')
+                                    error(error_message)
                                     pass
 
                             else:
@@ -1068,15 +1098,7 @@ async def job(iiko_connect_list, sbis_connection_list):
 
                                     log(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
                                 except AttributeError:
-                                    error(f'Ошибка в номенклатуре.\n'
-                                          f'Добавьте в СБИС позиции из IIKO:\n\n'
-                                          f'[ Бизнес ]\n'
-                                          f'[ Каталог ]\n'
-                                          f'[ + ]\n'
-                                          f'[ Загрузить    > ]\n'
-                                          f'[ Выгрузка номенклатуры из IIKO ]\n\n\n'
-                                          f'В СБИС справа внизу появится таймер, показывающий прогресс переноса позиций.\n'
-                                          f'Подождите, пока всё не синхронизируется, и нажмите [ Продолжить обработку ]')
+                                    error(error_message)
                                     pass
 
                             os.remove(XML_FILEPATH)
@@ -1084,7 +1106,8 @@ async def job(iiko_connect_list, sbis_connection_list):
                             update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
 
                             doc_count += 1
-                            logging.warning(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
+                            logging.warning(
+                                f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
 
                         except Exception as e:
                             logging.warning(f'Ошибка при обработке документа: {e} | {traceback.format_exc()}')

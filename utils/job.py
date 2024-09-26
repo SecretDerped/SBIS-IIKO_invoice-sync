@@ -83,6 +83,7 @@ async def job(iiko, sbis, iiko_connect_list, sbis_connection_list, gui, stop_eve
                         responsible = create_responsible_dict(org_info.get('store_name'))
 
                         if is_sole_trader and get_inn_by_concept(concept_name) is not None:
+                            print('aaaaaa' + get_inn_by_concept(concept_name))
                             organisation = {"СвФЛ": {"ИНН": get_inn_by_concept(concept_name)}}
                         else:
                             organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
@@ -91,6 +92,7 @@ async def job(iiko, sbis, iiko_connect_list, sbis_connection_list, gui, stop_eve
                         with open(xml_path, "rb") as file:
                             encoded_string = base64.b64encode(file.read())
                             base64_file = encoded_string.decode('ascii')
+
 
                         params = {"Документ": {"Тип": "ДокОтгрВх",
                                                "Регламент": {"Идентификатор": sbis.regulations_id},
