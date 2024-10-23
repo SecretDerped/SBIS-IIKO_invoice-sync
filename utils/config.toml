@@ -1,0 +1,28 @@
+[main]
+search_doc_days = 35
+cryptokey = 'fq1FY_bAbQro_m72xkYosZip2yzoezXNwRDHo-f-r5c='
+xml_buffer_filepath = 'income_doc_cash.xml'
+iiko_connections_list_filepath = 'iiko_cash.json'
+saby_connections_list_filepath = 'sbis_cash.json'
+
+[account]
+iiko_server_address = 'city-kids-ooo-perezagruzka-co.iiko.it'
+saby_regulation_id = '129c1cc6-454c-4311-b774-f7591fcae4ff'
+conceptions_ignore = [
+    'ООО "Город детей"',
+    "Каблахова Д.А.",
+    'ООО "Планета-М"',
+    "ИП Андреев И.В."
+]
+inns_ignore = [
+    '2311368256'
+]
+
+[gui]
+main_title = 'Соединения для ООО "Перезагрузка"'
+theme = "journal"
+
+[gui.window_size]
+adding = "210x230"
+main = "340x490"
+error = "440x410"
