@@ -8,19 +8,18 @@ import niquests
 from gui.error import user_has_allowed
 from gui.main_menu import update_sbis_status, status_label
 from gui.windows import show_notification
-from utils.tools import cryptokey, saby_regulation_id, get_digits
+from utils.tools import cryptokey, get_digits
 
 
 class SBISManager:
-    def __init__(self, sbis_connection_list):
-        self.cryptokey = cryptokey
-        self.regulations_id = saby_regulation_id
-        self.connection_list = sbis_connection_list
+    def __init__(self, login, password_hash, regulation_id):
+        self.login = login
+        self.password_hash = password_hash
+        self.regulation_id = regulation_id
         self.base_url = 'https://online.sbis.ru'
         self.headers = {'Host': 'online.sbis.ru',
                         'Content-Type': 'application/json-rpc; charset=utf-8',
                         'Accept': 'application/json-rpc'}
-        self.login = None
         self.attribute_error_message = (f'Ошибка в номенклатуре.\n'
                                         f'Добавьте в СБИС позиции из IIKO:\n\n'
                                         f'[ Бизнес ]\n'
@@ -32,29 +31,30 @@ class SBISManager:
                                         f'Подождите, пока всё не синхронизируется, и запустите\n'
                                         f'программу снова.')
 
-    def auth(self, login, password):
-        self.login = login
+    def auth(self, password):
         payload = {"jsonrpc": "2.0",
                    "method": 'СБИС.Аутентифицировать',
-                   "params": {"Логин": login, "Пароль": password},
+                   "params": {"Логин": self.login,
+                              "Пароль": password},
                    "protocol": 2,
                    "id": 0}
 
-        res = niquests.post(f'{self.base_url}/auth/service/', headers=self.headers, data=json.dumps(payload))
+        res = niquests.post(f'{self.base_url}/auth/service/',
+                            headers=self.headers,
+                            data=json.dumps(payload))
         sid = json.loads(res.text)['result']
 
-        with open(f"{login}_sbis_token.txt", "w+") as file:
+        with open(f"{self.login}_sbis_token.txt", "w+") as file:
             file.write(str(sid))
 
         return sid
 
-    def get_sid(self):
+    def get_account_with_sid(self):
         login = self.login
-        password_hash = self.connection_list[login]
-        password = self.cryptokey.decrypt(password_hash).decode()
+        password = cryptokey.decrypt(self.password_hash).decode()
 
         try:
-            with open(f"{login}_sbis_token.txt", "r") as file:
+            with open(f"{login}_sbis_token.txt") as file:
                 sid = file.read()
                 return {'login': login,
                         'password': password,
@@ -62,7 +62,7 @@ class SBISManager:
 
         except FileNotFoundError:
             try:
-                sid = self.auth(login, password)
+                sid = self.auth(password)
                 return {'login': login,
                         'password': password,
                         'sid': sid}
@@ -72,8 +72,8 @@ class SBISManager:
                 update_sbis_status(login, '(!) Ошибка', "red")
 
     def main_query(self, method: str, params: dict or str):
-        sid = self.get_sid()
-        self.headers['X-SBISSessionID'] = sid['sid']
+        account_data = self.get_account_with_sid()
+        self.headers['X-SBISSessionID'] = account_data['account_data']
         payload = {"jsonrpc": "2.0",
                    "method": method,
                    "params": params,
@@ -92,22 +92,22 @@ class SBISManager:
         match res.status_code:
 
             case 200:
-                update_sbis_status(sid['login'], '? Подключено', 'green')
+                update_sbis_status(account_data['login'], 'Подключено', 'green')
                 time.sleep(0.2)
                 return json.loads(res.text)['result']
 
             case 401:
                 info('Требуется обновление токена.')
                 time.sleep(1)
-                self.headers['X-SBISSessionID'] = self.auth(sid['login'], sid['password'])
+                self.headers['X-SBISSessionID'] = self.auth(account_data['password'])
                 res = niquests.post('https://online.sbis.ru/service/', headers=self.headers,
                                     data=json.dumps(payload))
                 return json.loads(res.text)['result']
 
             case 500:
-                status_label.config(text=f'! Ошибка ! {sid["login"]}')
+                status_label.config(text=f'! Ошибка ! {account_data["login"]}')
 
-                text = f"Ошибка в подключении к СБИС. На сервере произошёл сбой.",
+                text = f"На сервере СБИС произошёл сбой.",
                 show_notification(text)
 
                 raise AttributeError(f'{method}: Check debug logs.')

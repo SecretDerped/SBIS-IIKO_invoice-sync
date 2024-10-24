@@ -8,11 +8,11 @@ import threading
 import xmltodict
 
 from gui.error import user_has_allowed
-from gui.main_menu import update_iiko_status
+from gui.main_menu import update_status
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
 from utils.programm_loop import update_queue
-from utils.tools import saby_connections, iiko_connections, validate_supplier, search_doc_days, conceptions_ignore, \
+from utils.tools import validate_supplier, search_doc_days, conceptions_ignore, \
     xml_buffer_filepath, NoAuth, create_sbis_xml_and_get_total_sum, create_responsible_dict
 
 
@@ -35,25 +35,21 @@ def get_inn_by_concept(concept_name):
 
 stop_event = threading.Event()
 
-iiko = IIKOManager(iiko_connections)
-sbis = SBISManager(saby_connections)
 
-
-async def job(iiko_connect_list, sbis_connection_list):
+async def job(connections):
     info(f"Запуск цикла...")
     doc_count = 0
     while not stop_event.is_set():
         try:
-            assert sbis_connection_list, 'Отсутствует аккаунт СБИС'
-            assert sbis_reglament, 'Отсутствует идентификатор регламента документа для СБИС'
-            assert iiko_connect_list, 'Отсутствуют IIKO подключения'
-            assert iiko_server, 'Отсутствует адрес IIKO сервера'
-            for sbis_login in sbis_connection_list.keys():
-                sbis.login = sbis_login
+            for connection in connections:
 
-            for iiko_login in iiko_connect_list.keys():
-                info(f'Соединение с аккаунтом IIKO: {iiko_login}')
-                iiko.login = iiko_login
+                sbis_conn = connection.get('sbis')
+                assert sbis_conn, 'Внесите информацию аккаунта СБИС'
+                sbis = SBISManager(sbis_conn['login'], sbis_conn['password_hash'], sbis_conn['regulation_id'])
+
+                iiko_conn = connection['sbis']
+                assert iiko_conn, 'Внесите информацию аккаунта IIKO'
+                iiko = IIKOManager(iiko_conn['login'], iiko_conn['password_hash'], iiko_conn['server_address'])
 
                 try:
                     concepts = iiko.get_concepts()
@@ -151,7 +147,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                                     continue
 
                             params = {"Документ": {"Тип": "ДокОтгрВх",
-                                                   "Регламент": {"Идентификатор": sbis.regulations_id},
+                                                   "Регламент": {"Идентификатор": sbis.regulation_id},
                                                    'Номер': iiko_doc_num,
                                                    "Примечание": supplier.get('name'),
                                                    "Ответственный": responsible,
@@ -166,7 +162,7 @@ async def job(iiko_connect_list, sbis_connection_list):
                             else:
                                 sbis.write_doc_with_agreement(params, supplier, agreement, income_date)
 
-                            update_queue.put(lambda: update_iiko_status(iiko_login, '✔ Подключено'))
+                            update_queue.put(lambda: update_status(connection, '✔ Подключено'))
                             doc_count += 1
                             warning(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
 
@@ -175,14 +171,14 @@ async def job(iiko_connect_list, sbis_connection_list):
                             break
 
                 except NoAuth:
-                    update_queue.put(lambda: update_iiko_status(iiko_login, 'Неверный логин/пароль'))
+                    update_queue.put(lambda: update_status(connection, 'Неверный логин/пароль'))
 
                 except Exception as e:
-                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(!) Ошибка'))
+                    update_queue.put(lambda: update_status(connection, f'(!) Ошибка'))
                     warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
 
                 except ConnectionError:
-                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(?) Подключение...'))
+                    update_queue.put(lambda: update_status(connection, f'(?) Подключение...'))
 
         except Exception as e:
             logging.critical(f'Ошибка: {e}\n\n {traceback.format_exc()}')

@@ -8,16 +8,17 @@ from logging import info, debug, warning
 import niquests
 import xmltodict
 
-from gui.main_menu import update_iiko_status
+from gui.main_menu import update_status
+from gui.windows import show_notification
 from utils.programm_loop import update_queue
 from utils.tools import cryptokey, iiko_server_address, NoAuth
 
 
 class IIKOManager:
-    def __init__(self, iiko_connect_list):
-        self.connect_list = iiko_connect_list
-        self.server_address = iiko_server_address
-        self.cryptokey = cryptokey
+    def __init__(self, login, password_hash, server_address):
+        self.login = login
+        self.password_hash = password_hash
+        self.server_address = server_address
         self.login = None
         self.include_v2 = False
 
@@ -41,7 +42,7 @@ class IIKOManager:
                     return iiko_key
 
             case 401:
-                update_queue.put(lambda: update_iiko_status(login, 'Неверный логин/пароль'))
+                update_queue.put(lambda: update_status(login, 'Неверный логин/пароль'))
                 raise NoAuth('Неверный логин/пароль. \n'
                              'Пароль можно изменить в IIKO Office:\n'
                              '-- [Администрирование]\n'
@@ -52,14 +53,13 @@ class IIKOManager:
                              '-- [Сохранить]')
 
             case _, *code:
-                update_queue.put(lambda: update_iiko_status(login, f'(!) Ошибка. Код: {code}'))
+                update_queue.put(lambda: update_status(login, f'(!) Ошибка. Код: {code}'))
 
                 raise NoAuth(f'Код {code}, не удалось авторизоваться в IIKO. Ответ сервера: {res.text}')
 
-    def get_key(self):
+    def get_account_with_key(self):
         login = self.login
-        iiko_hash = self.connect_list[f'{login}']
-        password = self.cryptokey.decrypt(iiko_hash).decode()
+        password = cryptokey.decrypt(self.password_hash).decode()
 
         try:
             with open(f"{login}_iiko_token.txt", "r") as file:
@@ -82,7 +82,7 @@ class IIKOManager:
             self.include_v2 = False
 
         url = base_url + method
-        iiko_account = self.get_key()
+        iiko_account = self.get_account_with_key()
         params['key'] = iiko_account.get('key')
 
         res = niquests.get(url, params)
@@ -95,7 +95,7 @@ class IIKOManager:
         match res.status_code:
 
             case 200:
-                update_queue.put(lambda: update_iiko_status(iiko_account.get('login'), f'? Подключено'))
+                update_queue.put(lambda: update_status(iiko_account.get('login'), f'? Подключено'))
                 time.sleep(0.3)
                 return res.text
 
@@ -106,7 +106,7 @@ class IIKOManager:
 
             case _, *code:
                 warning(f'Code: {code}, Method: GET {method}, response: {res.text}')
-                update_queue.put(lambda: update_iiko_status(key.get('login'), f'(!) Ошибка. Код: {code}'))
+                update_queue.put(lambda: update_status(self.login, f'(!) Ошибка. Код: {code}'))
 
                 text = f"Ошибка в подключении к IIKO. Код ошибки {code}. Обратитесь к системному администратору.",
                 show_notification(text)

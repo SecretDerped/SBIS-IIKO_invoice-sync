@@ -17,7 +17,7 @@ from utils.programm_loop import update_queue, process_queue
 from utils.tools import save_data, iiko_connections, theme, title, main_windows_size, load_data
 
 
-def update_iiko_status(login, new_status):
+def update_status(login, new_status):
     for line in tree.get_children():
         if tree.item(line, 'values')[0] == login:
             tree.item(line, values=(login, new_status))
