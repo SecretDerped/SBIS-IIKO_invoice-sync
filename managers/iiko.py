@@ -8,6 +8,8 @@ from logging import info, debug, warning
 import niquests
 import xmltodict
 
+from gui.main_menu import update_iiko_status
+from utils.programm_loop import update_queue
 from utils.tools import cryptokey, iiko_server_address, NoAuth
 
 

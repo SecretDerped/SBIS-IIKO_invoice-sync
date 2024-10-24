@@ -10,7 +10,7 @@ from gui.windows import show_notification, add_mouse_moving_trait, add_close_pro
 from utils.tools import error_windows_size
 
 
-def get_answer_from_user(text, true_button_text, false_button_text):
+def user_has_allowed(text, true_button_text, false_button_text):
     """Показывает окно с введённым текстом. Внизу кнопки, возвращающие True и False"""
     error_window = ttkb.Toplevel()
     result = tk.BooleanVar()

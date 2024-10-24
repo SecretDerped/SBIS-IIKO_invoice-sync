@@ -1,37 +1,34 @@
 import asyncio
-import base64
 import logging
-import os
 import traceback
 from datetime import datetime, timedelta
 from logging import info, warning
 import threading
 
 import xmltodict
-from pyexpat.errors import messages
 
-from gui.error import get_answer_from_user
+from gui.error import user_has_allowed
 from gui.main_menu import update_iiko_status
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
 from utils.programm_loop import update_queue
 from utils.tools import saby_connections, iiko_connections, validate_supplier, search_doc_days, conceptions_ignore, \
-    xml_buffer_filepath, NoAuth, get_digits, create_xml_file
+    xml_buffer_filepath, NoAuth, create_sbis_xml_and_get_total_sum, create_responsible_dict
 
 
-# ЕСЛИ ВНЕСЕНА НОВАЯ ОРГАНИЗАЦИЯ, НАДО В ТОЧНОСТИ ДО ПРОБЕЛОВ ВНЕСТИ СЮДА ИМЯ КОНЦЕПЦИИ
+# Р•РЎР›Р Р’РќР•РЎР•РќРђ РќРћР’РђРЇ РћР Р“РђРќРР—РђР¦РРЇ, РќРђР”Рћ Р’ РўРћР§РќРћРЎРўР Р”Рћ РџР РћР‘Р•Р›РћР’ Р’РќР•РЎРўР РЎР®Р”Рђ РРњРЇ РљРћРќР¦Р•РџР¦РР
 def get_inn_by_concept(concept_name):
-    inn_mapping = {'Мелконова А.А.': '010507778771',
-                   'Мелконова Анастасия': '010507778771',
-                   'ИП Мелконова Анастасия': '010507778771',
-                   'Мелконов Г.С.': '231216827801',
-                   'ИП Мелконов Г.С.': '231216827801',
-                   'ИП МЕЛКОНОВ': '231216827801',
-                   'ИП Журавлев С.С.': '232910490605',
-                   'Богданов М.А.': '010102511000',
-                   'ИП Богданов М.А.': '010102511000',
-                   'Каблахова Д.А.': '090702462444',
-                   'ИП Андреев И.В.': '592007906504'}
+    inn_mapping = {'РњРµР»РєРѕРЅРѕРІР° Рђ.Рђ.': '010507778771',
+                   'РњРµР»РєРѕРЅРѕРІР° РђРЅР°СЃС‚Р°СЃРёСЏ': '010507778771',
+                   'РРџ РњРµР»РєРѕРЅРѕРІР° РђРЅР°СЃС‚Р°СЃРёСЏ': '010507778771',
+                   'РњРµР»РєРѕРЅРѕРІ Р“.РЎ.': '231216827801',
+                   'РРџ РњРµР»РєРѕРЅРѕРІ Р“.РЎ.': '231216827801',
+                   'РРџ РњР•Р›РљРћРќРћР’': '231216827801',
+                   'РРџ Р–СѓСЂР°РІР»РµРІ РЎ.РЎ.': '232910490605',
+                   'Р‘РѕРіРґР°РЅРѕРІ Рњ.Рђ.': '010102511000',
+                   'РРџ Р‘РѕРіРґР°РЅРѕРІ Рњ.Рђ.': '010102511000',
+                   'РљР°Р±Р»Р°С…РѕРІР° Р”.Рђ.': '090702462444',
+                   'РРџ РђРЅРґСЂРµРµРІ Р.Р’.': '592007906504'}
 
     return inn_mapping.get(concept_name)
 
@@ -43,47 +40,47 @@ sbis = SBISManager(saby_connections)
 
 
 async def job(iiko_connect_list, sbis_connection_list):
-    info(f"Запуск цикла...")
+    info(f"Р—Р°РїСѓСЃРє С†РёРєР»Р°...")
     doc_count = 0
     while not stop_event.is_set():
         try:
-            assert sbis_connection_list, 'Отсутствует аккаунт СБИС'
-            assert sbis_reglament, 'Отсутствует идентификатор регламента документа для СБИС'
-            assert iiko_connect_list, 'Отсутствуют IIKO подключения'
-            assert iiko_server, 'Отсутствует адрес IIKO сервера'
+            assert sbis_connection_list, 'РћС‚СЃСѓС‚СЃС‚РІСѓРµС‚ Р°РєРєР°СѓРЅС‚ РЎР‘РРЎ'
+            assert sbis_reglament, 'РћС‚СЃСѓС‚СЃС‚РІСѓРµС‚ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ СЂРµРіР»Р°РјРµРЅС‚Р° РґРѕРєСѓРјРµРЅС‚Р° РґР»СЏ РЎР‘РРЎ'
+            assert iiko_connect_list, 'РћС‚СЃСѓС‚СЃС‚РІСѓСЋС‚ IIKO РїРѕРґРєР»СЋС‡РµРЅРёСЏ'
+            assert iiko_server, 'РћС‚СЃСѓС‚СЃС‚РІСѓРµС‚ Р°РґСЂРµСЃ IIKO СЃРµСЂРІРµСЂР°'
             for sbis_login in sbis_connection_list.keys():
                 sbis.login = sbis_login
 
             for iiko_login in iiko_connect_list.keys():
-                info(f'Соединение с аккаунтом IIKO: {iiko_login}')
+                info(f'РЎРѕРµРґРёРЅРµРЅРёРµ СЃ Р°РєРєР°СѓРЅС‚РѕРј IIKO: {iiko_login}')
                 iiko.login = iiko_login
 
                 try:
                     concepts = iiko.get_concepts()
                     search_date = datetime.now() - timedelta(days=search_doc_days)
                     income_iiko_docs = xmltodict.parse(iiko.search_income_docs(search_date.strftime('%Y-%m-%d')))
-                    assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'В IIKO нет приходных накладных'
+                    assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'Р’ IIKO РЅРµС‚ РїСЂРёС…РѕРґРЅС‹С… РЅР°РєР»Р°РґРЅС‹С…'
 
                     invoice_docs = income_iiko_docs['incomingInvoiceDtoes']['document']
                     if type(invoice_docs) is dict:
                         invoice_docs = [invoice_docs]
 
                     for iiko_doc in reversed(invoice_docs):
-                        assert stop_event.is_set() is False, 'Программа завершила работу'
+                        assert stop_event.is_set() is False, 'РџСЂРѕРіСЂР°РјРјР° Р·Р°РІРµСЂС€РёР»Р° СЂР°Р±РѕС‚Сѓ'
 
                         try:
                             iiko_doc["documentNumber"] = iiko_doc.get("documentNumber").replace(' ', '')
                             iiko_doc_num = iiko_doc["documentNumber"]
-                            info(f'№{iiko_doc_num} от {iiko_doc.get("incomingDate")} обрабатывается...')
+                            info(f'в„–{iiko_doc_num} РѕС‚ {iiko_doc.get("incomingDate")} РѕР±СЂР°Р±Р°С‚С‹РІР°РµС‚СЃСЏ...')
 
                             if iiko_doc.get('status') != 'PROCESSED':
-                                info(f'Неактуален в IIKO. Пропуск... \n')
+                                info(f'РќРµР°РєС‚СѓР°Р»РµРЅ РІ IIKO. РџСЂРѕРїСѓСЃРє... \n')
                                 continue
 
                             concept_id = iiko_doc.get('conception')
                             info(f"""{concept_id = }""")
                             if concept_id is None or concept_id == '2609b25f-2180-bf98-5c1c-967664eea837':
-                                info(f'Без концепции в IIKO. Пропуск... \n')
+                                info(f'Р‘РµР· РєРѕРЅС†РµРїС†РёРё РІ IIKO. РџСЂРѕРїСѓСЃРє... \n')
                                 continue
 
                             else:
@@ -91,10 +88,10 @@ async def job(iiko_connect_list, sbis_connection_list):
                                 info(f"""{concept_name = }""")
 
                                 if concept_name in conceptions_ignore:
-                                    info(f'Концепция в чёрном списке. Пропуск... \n')
+                                    info(f'РљРѕРЅС†РµРїС†РёСЏ РІ С‡С‘СЂРЅРѕРј СЃРїРёСЃРєРµ. РџСЂРѕРїСѓСЃРє... \n')
                                     continue
 
-                                if 'ооо' in concept_name.lower():
+                                if 'РѕРѕРѕ' in concept_name.lower():
                                     is_sole_trader = False
                                 else:
                                     is_sole_trader = True
@@ -102,8 +99,8 @@ async def job(iiko_connect_list, sbis_connection_list):
                             supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
                             info(supplier)
 
-                            if supplier.get('name') is None or supplier.get('name').lower() == 'рынок':
-                                info(f'Мягкий чек в IIKO. Пропуск...\n')
+                            if supplier.get('name') is None or supplier.get('name').lower() == 'СЂС‹РЅРѕРє':
+                                info(f'РњСЏРіРєРёР№ С‡РµРє РІ IIKO. РџСЂРѕРїСѓСЃРє...\n')
                                 continue
 
                             if stop_event.is_set():
@@ -112,153 +109,84 @@ async def job(iiko_connect_list, sbis_connection_list):
                             while not validate_supplier(iiko.supplier_search_by_id(iiko_doc.get("supplier"))):
                                 if stop_event.is_set():
                                     break
-                                message = (f"Некорректные данные поставщика в IIKO:\n"
+                                message = (f"РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ РїРѕСЃС‚Р°РІС‰РёРєР° РІ IIKO:\n"
                                            f"{supplier.get('name')}\n"
-                                           f"ИНН: {supplier.get('inn', 'Не заполнено')}\n"
-                                           f"Доп. сведения: {supplier.get('note', '')}\n"
+                                           f"РРќРќ: {supplier.get('inn', 'РќРµ Р·Р°РїРѕР»РЅРµРЅРѕ')}\n"
+                                           f"Р”РѕРї. СЃРІРµРґРµРЅРёСЏ: {supplier.get('note', '')}\n"
                                            f"\n"
-                                           f"Корректно пропишите ИНН для физ. лиц\n"
-                                           f"Для юр. лиц впишите КПП в карточке поставщика во вкладке \"Дополнительные сведения\" в белом прямоугольнике для текста\n"
-                                           f"в формате \"КПП: 123456789\".\n"
+                                           f"РљРѕСЂСЂРµРєС‚РЅРѕ РїСЂРѕРїРёС€РёС‚Рµ РРќРќ РґР»СЏ С„РёР·. Р»РёС†\n"
+                                           f"Р”Р»СЏ СЋСЂ. Р»РёС† РІРїРёС€РёС‚Рµ РљРџРџ РІ РєР°СЂС‚РѕС‡РєРµ РїРѕСЃС‚Р°РІС‰РёРєР° РІРѕ РІРєР»Р°РґРєРµ \"Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ СЃРІРµРґРµРЅРёСЏ\" РІ Р±РµР»РѕРј РїСЂСЏРјРѕСѓРіРѕР»СЊРЅРёРєРµ РґР»СЏ С‚РµРєСЃС‚Р°\n"
+                                           f"РІ С„РѕСЂРјР°С‚Рµ \"РљРџРџ: 123456789\".\n"
                                            f"\n"
-                                           f"Исправьте данные, подождите полминуты, и нажмите\n"
-                                           f"[ Попробовать снова ]\n")
-                                if get_answer_from_user(message,
-                                                        'Пропустить документ',
-                                                        "Попробовать снова"):
+                                           f"РСЃРїСЂР°РІСЊС‚Рµ РґР°РЅРЅС‹Рµ, РїРѕРґРѕР¶РґРёС‚Рµ РїРѕР»РјРёРЅСѓС‚С‹, Рё РЅР°Р¶РјРёС‚Рµ\n"
+                                           f"[ РџРѕРїСЂРѕР±РѕРІР°С‚СЊ СЃРЅРѕРІР° ]\n")
+                                if user_has_allowed(message, 'РџСЂРѕРїСѓСЃС‚РёС‚СЊ РґРѕРєСѓРјРµРЅС‚', "РџРѕРїСЂРѕР±РѕРІР°С‚СЊ СЃРЅРѕРІР°"):
                                     break
-
                             if stop_event.is_set():
                                 break
                             income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
-                            sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
+                            sbis_doc = sbis.search_doc(iiko_doc_num, 'Р”РѕРєРћС‚РіСЂР’С…', income_date)
+
                             if sbis_doc:
-                                warning(f'Документ уже обработан в СБИС. Пропуск... \n')
+                                warning(f'Р”РѕРєСѓРјРµРЅС‚ СѓР¶Рµ РѕР±СЂР°Р±РѕС‚Р°РЅ РІ РЎР‘РРЎ. РџСЂРѕРїСѓСЃРє... \n')
                                 continue
 
-                            xml = create_xml_file(iiko_doc, supplier)
+                            sbis_xml_base64, total_price = create_sbis_xml_and_get_total_sum(iiko_doc, supplier)
 
-                            # Ищет документ в СБИС с такой же суммой и той же датой
-                            is_copy = False
-                            today_docs = sbis.get_today_docs(income_date, 'ДокОтгрВх')
-                            for sbis_doc in today_docs:
-                                sbis_sum = sbis_doc.get('Сумма', '0')
-                                if sbis_sum == str(total_price):
-                                    sbis_name = sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get(
-                                        'НазваниеПолное', 'Неизвестный')
-                                    if get_answer_from_user((f'Обнаружен похожий документ:\n'
-                                                             f'В IIKO: {income_date} / От {supplier.get("name")} на сумму {total_price}\n'
-                                                             f'В СБИС: {income_date} / От {sbis_name} на сумму {sbis_sum}'),
-                                                            'Пропустить', 'Всё равно записать'):
-                                        is_copy = True
-                                        break
-                            # Пропускает документ, если пользователь нажал "Пропустить документ"
-                            if is_copy:
+                            if sbis.found_duplicate_and_user_passed(income_date, total_price, supplier):
                                 continue
-
-                            with open(xml_buffer_filepath, "rb") as file:
-                                encoded_string = base64.b64encode(file.read())
-                                base64_file = encoded_string.decode('ascii')
 
                             org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                            # TODO: Ответсвенный снесён. Склад не учитывается. Крепится ближайший
-                            # responsible = create_responsible_dict(org_info.get('store_name'))
+                            responsible = create_responsible_dict(org_info.get('store_name'))
 
                             org_inn = get_inn_by_concept(concept_name)
                             if is_sole_trader and org_inn is not None:
-                                organisation = {"СвФЛ": {"ИНН": org_inn}}
+                                organisation = {"РЎРІР¤Р›": {"РРќРќ": org_inn}}
                             else:
-                                organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
-                                                         "КПП": org_info.get('kpp')}}
+                                organisation = {"РЎРІР®Р›": {"РРќРќ": org_info.get('inn'),
+                                                         "РљРџРџ": org_info.get('kpp')}}
 
-                                if organisation["СвЮЛ"]["ИНН"] in conceptions_ignore:
-                                    info('Это внутреннее перемещение.')
+                                if organisation["РЎРІР®Р›"]["РРќРќ"] in conceptions_ignore:
+                                    info('Р­С‚Рѕ РІРЅСѓС‚СЂРµРЅРЅРµРµ РїРµСЂРµРјРµС‰РµРЅРёРµ.')
                                     continue
 
-                            params = {"Документ": {"Тип": "ДокОтгрВх",
-                                                   "Регламент": {"Идентификатор": sbis.regulations_id},
-                                                   'Номер': iiko_doc_num,
-                                                   "Примечание": supplier.get('name'),
-                                                   # TODO: Ответсвенный снесён. Склад не учитывается. Крепится ближайший
-                                                   # "Ответственный": responsible,
-                                                   "НашаОрганизация": organisation,
-                                                   "Вложение": [
-                                                       {'Файл': {'Имя': xml_buffer_filepath,
-                                                                 'ДвоичныеДанные': base64_file}}]
+                            params = {"Р”РѕРєСѓРјРµРЅС‚": {"РўРёРї": "Р”РѕРєРћС‚РіСЂР’С…",
+                                                   "Р РµРіР»Р°РјРµРЅС‚": {"РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ": sbis.regulations_id},
+                                                   'РќРѕРјРµСЂ': iiko_doc_num,
+                                                   "РџСЂРёРјРµС‡Р°РЅРёРµ": supplier.get('name'),
+                                                   "РћС‚РІРµС‚СЃС‚РІРµРЅРЅС‹Р№": responsible,
+                                                   "РќР°С€Р°РћСЂРіР°РЅРёР·Р°С†РёСЏ": organisation,
+                                                   "Р’Р»РѕР¶РµРЅРёРµ": [
+                                                       {'Р¤Р°Р№Р»': {'РРјСЏ': xml_buffer_filepath,
+                                                                 'Р”РІРѕРёС‡РЅС‹РµР”Р°РЅРЅС‹Рµ': sbis_xml_base64}}]
                                                    }}
-
                             agreement = sbis.search_agr(supplier['inn'])
-                            error_message = (f'Ошибка в номенклатуре.\n'
-                                             f'Добавьте в СБИС позиции из IIKO:\n\n'
-                                             f'[ Бизнес ]\n'
-                                             f'[ Каталог ]\n'
-                                             f'[ + ]\n'
-                                             f'[ Загрузить    > ]\n'
-                                             f'[ Выгрузка номенклатуры из IIKO ]\n\n\n'
-                                             f'В СБИС справа внизу появится таймер, показывающий прогресс переноса позиций.\n'
-                                             f'Подождите, пока всё не синхронизируется, и нажмите\n'
-                                             f'[ Продолжить обработку ]')
-
                             if agreement is None or agreement == 'None':
-                                try:
-                                    new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                    info(f"Договор с ИНН №{supplier['inn']} не найден в СБИС."
-                                         f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
-                                except AttributeError as e:
-                                    get_answer_from_user(f'{error_message}\n\nОшибка: {e}',
-                                                         "", '')
-                                    pass
-
+                                sbis.write_doc_without_agreement(params, supplier)
                             else:
-                                agreement_note = get_digits(agreement['Примечание'])
-                                if agreement_note == '':
-                                    agreement_note = '7'
+                                sbis.write_doc_with_agreement(params, supplier, agreement, income_date)
 
-                                payment_days = int(agreement_note)
-                                deadline = datetime.strptime(income_date, '%d.%m.%Y') + timedelta(
-                                    days=payment_days)
-                                deadline_str = datetime.strftime(deadline, '%d.%m.%Y')
-
-                                params['Документ']['Срок'] = deadline_str
-                                params['Документ']['ВидСвязи'] = 'Договор'
-                                params['Документ']['ДокументОснование'] = {
-                                    "Документ": {
-                                        'ВидСвязи': 'Договор',
-                                        "Идентификатор": agreement["Идентификатор"]}}
-                                try:
-                                    new_sbis_doc = sbis.main_query("СБИС.ЗаписатьДокумент", params)
-                                    sbis.agreement_connect(agreement["Идентификатор"], new_sbis_doc["Идентификатор"])
-
-                                    info(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
-                                except AttributeError:
-                                    get_answer_from_user(error_message)
-                                    pass
-
-                            os.remove(xml_buffer_filepath)
-
-                            update_queue.put(lambda: update_iiko_status(iiko_login, '? Подключено'))
-
+                            update_queue.put(lambda: update_iiko_status(iiko_login, 'вњ” РџРѕРґРєР»СЋС‡РµРЅРѕ'))
                             doc_count += 1
-                            warning(
-                                f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
+                            warning(f"РќР°РєР»Р°РґРЅР°СЏ в„–{iiko_doc_num} РѕС‚ {income_date} СѓСЃРїРµС€РЅРѕ СЃРєРѕРїРёСЂРѕРІР°РЅР° РІ РЎР‘РРЎ РёР· IIKO.\n")
 
                         except Exception as e:
-                            warning(f'Ошибка при обработке документа: {e} | {traceback.format_exc()}')
+                            warning(f'РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ РґРѕРєСѓРјРµРЅС‚Р°: {e} | {traceback.format_exc()}')
                             break
 
                 except NoAuth:
-                    update_queue.put(lambda: update_iiko_status(iiko_login, 'Неверный логин/пароль'))
+                    update_queue.put(lambda: update_iiko_status(iiko_login, 'РќРµРІРµСЂРЅС‹Р№ Р»РѕРіРёРЅ/РїР°СЂРѕР»СЊ'))
 
                 except Exception as e:
-                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(!) Ошибка'))
-                    warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
+                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(!) РћС€РёР±РєР°'))
+                    warning(f'Р¦РёРєР» РїСЂРµСЂРІР°Р»СЃСЏ. {e} | {traceback.format_exc()}')
 
                 except ConnectionError:
-                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(?) Подключение...'))
+                    update_queue.put(lambda: update_iiko_status(iiko_login, f'(?) РџРѕРґРєР»СЋС‡РµРЅРёРµ...'))
 
         except Exception as e:
-            logging.critical(f'Ошибка: {e}\n\n {traceback.format_exc()}')
+            logging.critical(f'РћС€РёР±РєР°: {e}\n\n {traceback.format_exc()}')
 
         finally:
-            info(f"Завершение текущего цикла. Обработано документов: {doc_count}.\n\n")
+            info(f"Р—Р°РІРµСЂС€РµРЅРёРµ С‚РµРєСѓС‰РµРіРѕ С†РёРєР»Р°. РћР±СЂР°Р±РѕС‚Р°РЅРѕ РґРѕРєСѓРјРµРЅС‚РѕРІ: {doc_count}.\n\n")
             await asyncio.sleep(1)

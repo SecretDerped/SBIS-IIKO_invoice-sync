@@ -1,13 +1,14 @@
 import json
 import time
-from datetime import date
-from logging import info, debug, critical
+from datetime import date, datetime, timedelta
+from logging import info, debug, critical, warning
 
 import niquests
 
+from gui.error import user_has_allowed
 from gui.main_menu import update_sbis_status, status_label
 from gui.windows import show_notification
-from utils.tools import cryptokey, saby_regulation_id
+from utils.tools import cryptokey, saby_regulation_id, get_digits
 
 
 class SBISManager:
@@ -20,6 +21,16 @@ class SBISManager:
                         'Content-Type': 'application/json-rpc; charset=utf-8',
                         'Accept': 'application/json-rpc'}
         self.login = None
+        self.attribute_error_message = (f'Ошибка в номенклатуре.\n'
+                                        f'Добавьте в СБИС позиции из IIKO:\n\n'
+                                        f'[ Бизнес ]\n'
+                                        f'[ Каталог ]\n'
+                                        f'[ + ]\n'
+                                        f'[ Загрузить    > ]\n'
+                                        f'[ Выгрузка номенклатуры из IIKO ]\n\n\n'
+                                        f'В СБИС справа внизу появится таймер, показывающий прогресс переноса позиций.\n'
+                                        f'Подождите, пока всё не синхронизируется, и запустите\n'
+                                        f'программу снова.')
 
     def auth(self, login, password):
         self.login = login
@@ -96,21 +107,20 @@ class SBISManager:
             case 500:
                 status_label.config(text=f'! Ошибка ! {sid["login"]}')
 
-                text = f"Ошибка в подключении к СБИС. Сервер недоступен. Код 500",
+                text = f"Ошибка в подключении к СБИС. На сервере произошёл сбой.",
                 show_notification(text)
 
                 raise AttributeError(f'{method}: Check debug logs.')
 
     def search_doc(self, num, doc_type, doc_date):
-
-        assert any(map(str.isdigit, num)), 'СБИС не сможет найти документ по номеру, в котором нет цифр'
+        assert any(map(str.isdigit, num)), 'СБИС не сможет найти документ по номеру, в котором нет цифр.'
 
         params = {"Фильтр": {"Маска": num,
                              "ДатаС": doc_date,  # '17.01.2024'
                              "ДатаПо": doc_date,  # '17.01.2024'
                              "Тип": doc_type}}
-        res = self.main_query("СБИС.СписокДокументов", params)
 
+        res = self.main_query("СБИС.СписокДокументов", params)
         return None if len(res['Документ']) == 0 else res['Документ'][0]
 
     def search_agr(self, inn):
@@ -121,13 +131,12 @@ class SBISManager:
                                  "ДатаС": '01.01.2020',
                                  "ДатаПо": date.today().strftime('%d.%m.%Y'),
                                  "Тип": "ДоговорИсх"}}
-            res = self.main_query("СБИС.СписокДокументов", params)
 
+            res = self.main_query("СБИС.СписокДокументов", params)
             return None if len(res['Документ']) == 0 else res['Документ'][0]
         return None
 
     def agreement_connect(self, agr_id: str, doc_id: str):
-
         params = {
             "Документ": {
                 'ВидСвязи': 'Договор',
@@ -148,3 +157,58 @@ class SBISManager:
 
         res = self.main_query("СБИС.СписокДокументов", params)
         return None if len(res['Документ']) == 0 else res['Документ']
+
+    def found_duplicate_and_user_passed(self, income_date, total_price, supplier):
+        """ Ищет документ в СБИС с такой же суммой и той же датой"""
+        info('Ищем дубликаты в СБИС...')
+
+        today_docs = self.get_today_docs(income_date, 'ДокОтгрВх')
+        for sbis_doc in today_docs:
+            sbis_sum = sbis_doc.get('Сумма', '0')
+
+            if sbis_sum == str(total_price):
+                warning(f'Найден похожий документ. Ж \n')
+                sbis_name = sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get(
+                    'НазваниеПолное', 'Неизвестный')
+
+                return user_has_allowed((f'Обнаружен похожий документ:\n'
+                                         f'В IIKO: {income_date} / От {supplier.get("name")} на сумму {total_price}\n'
+                                         f'В СБИС: {income_date} / От {sbis_name} на сумму {sbis_sum}'),
+                                        'Пропустить документ', 'Всё равно записать')
+        return False
+
+    def write_doc_without_agreement(self, params, supplier):
+        try:
+            new_sbis_doc = self.main_query("СБИС.ЗаписатьДокумент", params)
+            info(f"Договор с ИНН №{supplier['inn']} не найден в СБИС."
+                 f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
+        except AttributeError as e:
+            return user_has_allowed(f'{self.attribute_error_message}\n'
+                                    f'\n'
+                                    f'Ошибка: {e}',
+                                    "Пропустить документ", 'Всё равно записать')
+
+    def write_doc_with_agreement(self, params, supplier, agreement, income_date):
+        agreement_note = get_digits(agreement['Примечание'])
+        if agreement_note == '':
+            agreement_note = '7'
+
+        payment_days = int(agreement_note)
+        deadline = datetime.strptime(income_date, '%d.%m.%Y') + timedelta(
+            days=payment_days)
+        deadline_str = datetime.strftime(deadline, '%d.%m.%Y')
+
+        params['Документ']['Срок'] = deadline_str
+        params['Документ']['ВидСвязи'] = 'Договор'
+        params['Документ']['ДокументОснование'] = {
+            "Документ": {
+                'ВидСвязи': 'Договор',
+                "Идентификатор": agreement["Идентификатор"]}}
+        try:
+            new_sbis_doc = self.main_query("СБИС.ЗаписатьДокумент", params)
+            self.agreement_connect(agreement["Идентификатор"], new_sbis_doc["Идентификатор"])
+
+            info(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
+        except AttributeError:
+            return user_has_allowed(self.attribute_error_message,
+                                    "Пропустить документ", 'Всё равно записать')

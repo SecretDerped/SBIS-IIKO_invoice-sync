@@ -1,4 +1,5 @@
 import atexit
+import base64
 import json
 from datetime import datetime
 from logging import info, INFO, StreamHandler, FileHandler, basicConfig
@@ -121,7 +122,7 @@ def load_data(path):
     return {}
 
 
-def create_xml_file(iiko_doc, supplier):
+def create_sbis_xml_and_get_total_sum(iiko_doc, supplier):
     doc_num = iiko_doc["documentNumber"]
     income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
 
@@ -229,3 +230,12 @@ def create_xml_file(iiko_doc, supplier):
             </Документ>
 
             </Файл>''')
+    with open(xml_buffer_filepath, "rb") as file:
+        encoded_string = base64.b64encode(file.read())
+        base64_file = encoded_string.decode('ascii')
+    os.remove(xml_buffer_filepath)
+
+    return base64_file, total_price
+
+
+
