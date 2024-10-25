@@ -1,6 +1,6 @@
 from ttkbootstrap import PRIMARY, OUTLINE, SUCCESS
 
-from gui.main_menu import root, iiko_accounts_dict, status_label, tree
+from gui.main_menu import root, connections, status_label, tree
 from gui.windows import add_mouse_moving_trait
 import ttkbootstrap as ttkb
 
@@ -45,7 +45,7 @@ def create_connection_window(title, is_sbis=False):
         password = password_entry.get()
 
         if login and password:
-            if login in iiko_accounts_dict:
+            if login in connections:
                 error_label.config(text="Ћогин уже существует")
                 error_label.pack()
                 return
@@ -53,8 +53,8 @@ def create_connection_window(title, is_sbis=False):
             tree.insert('', 'end', values=(login,))
             add_window.destroy()
             password_hash_string = cryptokey.encrypt(password.encode()).decode()
-            iiko_accounts_dict[login] = password_hash_string
-            save_data(iiko_accounts_dict, iiko_connections)
+            connections[login] = password_hash_string
+            save_data(connections, iiko_connections)
 
         else:
             error_label.config(text="¬ведите пароль")

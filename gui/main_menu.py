@@ -10,11 +10,10 @@ from tkinter import ttk
 from ttkbootstrap import INFO
 
 from gui.connection import create_connection_window
-from gui.iiko_ikon import icon_data, app_icon
 from main import new_loop, thread
 from utils.job import stop_event
 from utils.programm_loop import update_queue, process_queue
-from utils.tools import save_data, iiko_connections, theme, title, main_windows_size, load_data
+from utils.tools import save_data, theme, title, main_windows_size, load_data
 
 
 def update_status(login, new_status):
@@ -34,10 +33,10 @@ def remove_connection():
     if selected_item:
         for line in selected_item:
             value = tree.item(line, 'values')[0]
-            iiko_accounts_dict.pop(value)
+            connections.pop(value)
             tree.delete(line)
 
-        save_data(iiko_accounts_dict, iiko_connections)
+        save_data(connections)
 
 
 def exit_program():
@@ -74,6 +73,8 @@ root = ttkb.Window(themename=theme, title=title)
 root.geometry(main_windows_size)
 root.protocol("WM_DELETE_WINDOW", exit_program)
 
+from gui.iiko_ikon import icon_data, app_icon
+
 with tempfile.NamedTemporaryFile(delete=False, suffix='.ico') as temp_icon_file:
     temp_icon_file.write(icon_data)
     temp_icon_path = temp_icon_file.name
@@ -82,15 +83,14 @@ root.call('wm', 'iconphoto', root._w, app_icon)
 os.remove(temp_icon_path)
 
 tree = ttk.Treeview(root, columns=("login", "status"), show='headings')
-
-tree.heading('login', text="Логин")
+tree.heading('login', text="Соединение")
 tree.heading('status', text="Статус")
 tree.column("login", width=90, anchor='center')
 tree.column("status", width=150, anchor='center')
 tree.pack(pady=5)
 
-iiko_accounts_dict = load_data(iiko_connections)
-for key in iiko_accounts_dict.keys():
+connections = load_data()
+for key, value in connections:
     tree.insert('', 'end', values=(key,))
 
 ttk.Button(root, text="Добавить соединение", command=lambda: create_connection_window("")).pack(pady=20)
@@ -99,8 +99,7 @@ ttk.Button(root, text="Удалить соединение", command=remove_connection).pack(pady
 separator = ttkb.Separator(root)
 separator.pack(fill='x', padx=5, pady=20)
 
-sbis_button = ttk.Button(root, text="Соединение СБИС", command=lambda: create_connection_window("СБИС", True),
-                         bootstyle=INFO)
+sbis_button = ttk.Button(root, text="Соединение СБИС", command=lambda: create_connection_window("СБИС", True), bootstyle=INFO)
 sbis_button.pack(side=tk.TOP, padx=10, pady=10)
 
 status_label = ttkb.Label(root, text="Не подключено")

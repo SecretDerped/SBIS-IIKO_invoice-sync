@@ -1,17 +1,17 @@
 import asyncio
 import threading
 
-from gui.main_menu import iiko_accounts_dict, root
+from gui.main_menu import root
 from utils.job import job, stop_event
 from utils.programm_loop import start_async_loop
-from utils.tools import saby_connections, load_data
+from utils.tools import load_data
 
 
 new_loop = asyncio.new_event_loop()
 thread = threading.Thread(target=start_async_loop, args=(new_loop, stop_event,))
 thread.start()
 
-sbis_connect = load_data(saby_connections)
-asyncio.run_coroutine_threadsafe(job(iiko_accounts_dict, sbis_connect), new_loop)
+connections = load_data()
+asyncio.run_coroutine_threadsafe(job(), new_loop)
 
 root.mainloop()
