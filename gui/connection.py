@@ -11,9 +11,9 @@ def create_connection_window(title, is_sbis=False):
     add_window = ttkb.Toplevel(root)
     add_window.title(title)
     add_window.geometry(add_window_size)
-    add_window.overrideredirect(True)  # Убирает рамку окна, включая верхнюю черную грань
+    add_window.overrideredirect(True)  # РЈР±РёСЂР°РµС‚ СЂР°РјРєСѓ РѕРєРЅР°, РІРєР»СЋС‡Р°СЏ РІРµСЂС…РЅСЋСЋ С‡РµСЂРЅСѓСЋ РіСЂР°РЅСЊ
 
-    # Установка тонкой черной рамки
+    # РЈСЃС‚Р°РЅРѕРІРєР° С‚РѕРЅРєРѕР№ С‡РµСЂРЅРѕР№ СЂР°РјРєРё
     add_window.config(bg='black')
     inner_frame = ttkb.Frame(add_window,
                              borderwidth=0,
@@ -26,15 +26,15 @@ def create_connection_window(title, is_sbis=False):
 
     add_window.protocol("WM_DELETE_WINDOW", add_window.destroy())
 
-    # Добавление кнопки для закрытия окна
+    # Р”РѕР±Р°РІР»РµРЅРёРµ РєРЅРѕРїРєРё РґР»СЏ Р·Р°РєСЂС‹С‚РёСЏ РѕРєРЅР°
     close_button = ttkb.Button(inner_frame, text="X", command=add_window.destroy, bootstyle=(PRIMARY, OUTLINE))
     close_button.pack(side='top', anchor='ne', padx=5, pady=5)
 
-    ttkb.Label(inner_frame, text="Логин:").pack()
+    ttkb.Label(inner_frame, text="Р›РѕРіРёРЅ:").pack()
     login_entry = ttkb.Entry(inner_frame)
     login_entry.pack()
 
-    ttkb.Label(inner_frame, text="Пароль:").pack()
+    ttkb.Label(inner_frame, text="РџР°СЂРѕР»СЊ:").pack()
     password_entry = ttkb.Entry(inner_frame, show="*")
     password_entry.pack()
 
@@ -46,7 +46,7 @@ def create_connection_window(title, is_sbis=False):
 
         if login and password:
             if login in connections:
-                error_label.config(text="Логин уже существует")
+                error_label.config(text="Р›РѕРіРёРЅ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚")
                 error_label.pack()
                 return
 
@@ -57,17 +57,17 @@ def create_connection_window(title, is_sbis=False):
             save_data(connections, iiko_connections)
 
         else:
-            error_label.config(text="Введите пароль")
+            error_label.config(text="Р’РІРµРґРёС‚Рµ РїР°СЂРѕР»СЊ")
             error_label.pack()
 
     def on_submit_sbis(login, password, window):
         if login:
             try:
                 sbis.auth(login, password)
-                status_label.config(text=f'? Подключено: {login}', foreground="green")
+                status_label.config(text=f'? РџРѕРґРєР»СЋС‡РµРЅРѕ: {login}', foreground="green")
 
             except Exception:
-                status_label.config(text=f'(!) Ошибка: {login}', foreground="red")
+                status_label.config(text=f'(!) РћС€РёР±РєР°: {login}', foreground="red")
 
             password_hash_string = cryptokey.encrypt(password.encode()).decode()
             login_data = {'login': password_hash_string}
@@ -75,10 +75,10 @@ def create_connection_window(title, is_sbis=False):
 
         window.destroy()
 
-    submit_button_text = "Добавить"
+    submit_button_text = "Р”РѕР±Р°РІРёС‚СЊ"
 
     if is_sbis:
-        submit_button_text = "Сохранить"
+        submit_button_text = "РЎРѕС…СЂР°РЅРёС‚СЊ"
         command_action = lambda: on_submit_sbis(login_entry.get(), password_entry.get(), add_window)
     else:
         command_action = on_submit
@@ -86,7 +86,7 @@ def create_connection_window(title, is_sbis=False):
     submit_button = ttkb.Button(inner_frame, text=submit_button_text, command=command_action, bootstyle=SUCCESS)
     submit_button.pack(pady=5)
 
-    # Центрирование окна
+    # Р¦РµРЅС‚СЂРёСЂРѕРІР°РЅРёРµ РѕРєРЅР°
     root.update_idletasks()
     main_width = root.winfo_width()
     main_height = root.winfo_height()

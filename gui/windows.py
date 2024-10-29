@@ -5,7 +5,7 @@ from ttkbootstrap.toast import ToastNotification
 
 def show_notification(text):
     toast = ToastNotification(
-        title="Уведомление SBISIIKOconnect",
+        title="РЈРІРµРґРѕРјР»РµРЅРёРµ SBISIIKOconnect",
         message=text,
         duration=5000,
         icon=''
@@ -15,7 +15,7 @@ def show_notification(text):
 
 
 def add_mouse_moving_trait(window: ttkb.Window | ttkb.Frame | ttkb.Toplevel):
-    """Привязка событий для перемещения окна"""
+    """РџСЂРёРІСЏР·РєР° СЃРѕР±С‹С‚РёР№ РґР»СЏ РїРµСЂРµРјРµС‰РµРЅРёСЏ РѕРєРЅР°"""
     def start_move(window, event=None):
         window.x = event.x
         window.y = event.y

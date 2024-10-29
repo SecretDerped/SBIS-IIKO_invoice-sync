@@ -9,11 +9,13 @@ from logging import info
 from tkinter import ttk
 from ttkbootstrap import INFO
 
-from gui.connection import create_connection_window
+# from gui.connection import create_connection_window
 from main import new_loop, thread
+from utils.db import Connection
+from utils.db_data_takers import get_connections_data, Session
 from utils.job import stop_event
 from utils.programm_loop import update_queue, process_queue
-from utils.tools import save_data, theme, title, main_windows_size, load_data
+from utils.tools import theme, title, main_windows_size
 
 
 def update_status(login, new_status):
@@ -28,43 +30,43 @@ def update_sbis_status(login, status, color):
 
 
 def remove_connection():
-    selected_item = tree.selection()
+    # РЎРѕР·РґР°РµРј СЃРµСЃСЃРёСЋ РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ Р·Р°РїСЂРѕСЃРѕРІ
+    with Session() as session:
+        selected_item = tree.selection()
 
-    if selected_item:
-        for line in selected_item:
-            value = tree.item(line, 'values')[0]
-            connections.pop(value)
-            tree.delete(line)
-
-        save_data(connections)
+        if selected_item:
+            for line in selected_item:
+                connection_id = tree.item(line, 'values')[0]
+                session.delete(Connection).where(Connection.id == connection_id)
+                tree.delete(line)
 
 
 def exit_program():
     stop_event.set()
     root.withdraw()
-    # Закрываем все открытые дочерние окна
+    # Р—Р°РєСЂС‹РІР°РµРј РІСЃРµ РѕС‚РєСЂС‹С‚С‹Рµ РґРѕС‡РµСЂРЅРёРµ РѕРєРЅР°
     for window in root.winfo_children():
         if isinstance(window, tk.Toplevel):
             window.destroy()
-    # Останавливаем асинхронный цикл событий
+    # РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј Р°СЃРёРЅС…СЂРѕРЅРЅС‹Р№ С†РёРєР» СЃРѕР±С‹С‚РёР№
     new_loop.call_soon_threadsafe(new_loop.stop)
-    # Убедитесь, что вызывается thread.join() для фонового потока, если он не был завершен
+    # РЈР±РµРґРёС‚РµСЃСЊ, С‡С‚Рѕ РІС‹Р·С‹РІР°РµС‚СЃСЏ thread.join() РґР»СЏ С„РѕРЅРѕРІРѕРіРѕ РїРѕС‚РѕРєР°, РµСЃР»Рё РѕРЅ РЅРµ Р±С‹Р» Р·Р°РІРµСЂС€РµРЅ
     if thread.is_alive():
         thread.join()
-    # Явно закрываем асинхронный цикл событий
+    # РЇРІРЅРѕ Р·Р°РєСЂС‹РІР°РµРј Р°СЃРёРЅС…СЂРѕРЅРЅС‹Р№ С†РёРєР» СЃРѕР±С‹С‚РёР№
     new_loop.close()
-    # Передаем управление обратно в основной поток Tkinter'а, чтобы завершить программу
+    # РџРµСЂРµРґР°РµРј СѓРїСЂР°РІР»РµРЅРёРµ РѕР±СЂР°С‚РЅРѕ РІ РѕСЃРЅРѕРІРЅРѕР№ РїРѕС‚РѕРє Tkinter'Р°, С‡С‚РѕР±С‹ Р·Р°РІРµСЂС€РёС‚СЊ РїСЂРѕРіСЂР°РјРјСѓ
     root.quit()
 
-    # Выводим информацию о всех активных потоках перед закрытием приложения
+    # Р’С‹РІРѕРґРёРј РёРЅС„РѕСЂРјР°С†РёСЋ Рѕ РІСЃРµС… Р°РєС‚РёРІРЅС‹С… РїРѕС‚РѕРєР°С… РїРµСЂРµРґ Р·Р°РєСЂС‹С‚РёРµРј РїСЂРёР»РѕР¶РµРЅРёСЏ
     for t in threading.enumerate():
         if t is threading.main_thread():
-            continue  # Игнорируем главный поток
+            continue  # РРіРЅРѕСЂРёСЂСѓРµРј РіР»Р°РІРЅС‹Р№ РїРѕС‚РѕРє
         if t.is_alive():
-            info(f'Ожидание завершения потока: {t.name}')
+            info(f'РћР¶РёРґР°РЅРёРµ Р·Р°РІРµСЂС€РµРЅРёСЏ РїРѕС‚РѕРєР°: {t.name}')
             t.join()
 
-    # Полное закрытие приложения
+    # РџРѕР»РЅРѕРµ Р·Р°РєСЂС‹С‚РёРµ РїСЂРёР»РѕР¶РµРЅРёСЏ
     root.destroy()
     sys.exit()
 
@@ -82,27 +84,35 @@ root.iconbitmap(default=temp_icon_path)
 root.call('wm', 'iconphoto', root._w, app_icon)
 os.remove(temp_icon_path)
 
-tree = ttk.Treeview(root, columns=("login", "status"), show='headings')
-tree.heading('login', text="Соединение")
-tree.heading('status', text="Статус")
-tree.column("login", width=90, anchor='center')
+tree = ttk.Treeview(root, columns=("id", "saby_login", "iiko_login", "status"), show='headings')
+tree.heading('id', text="в„–")
+tree.column("id", width=30, anchor='center')
+
+tree.heading('saby_login', text="РЎР‘РРЎ")
+tree.column("saby_login", width=90, anchor='center')
+
+tree.heading('iiko_login', text="IIKO")
+tree.column("iiko_login", width=90, anchor='center')
+
+tree.heading('status', text="РЎС‚Р°С‚СѓСЃ")
 tree.column("status", width=150, anchor='center')
+
 tree.pack(pady=5)
 
-connections = load_data()
-for key, value in connections:
-    tree.insert('', 'end', values=(key,))
+connections = get_connections_data()
+for conn in connections:
+    tree.insert('', 'end', values=(conn['id'], conn['saby']['login'], conn['iiko']['login']))
 
-ttk.Button(root, text="Добавить соединение", command=lambda: create_connection_window("")).pack(pady=20)
-ttk.Button(root, text="Удалить соединение", command=remove_connection).pack(pady=5)
+#ttk.Button(root, text="Р”РѕР±Р°РІРёС‚СЊ СЃРѕРµРґРёРЅРµРЅРёРµ", command=lambda: create_connection_window("")).pack(pady=20)
+ttk.Button(root, text="РЈРґР°Р»РёС‚СЊ СЃРѕРµРґРёРЅРµРЅРёРµ", command=remove_connection).pack(pady=5)
 
 separator = ttkb.Separator(root)
 separator.pack(fill='x', padx=5, pady=20)
 
-sbis_button = ttk.Button(root, text="Соединение СБИС", command=lambda: create_connection_window("СБИС", True), bootstyle=INFO)
-sbis_button.pack(side=tk.TOP, padx=10, pady=10)
+#sbis_button = ttk.Button(root, text="РЎРѕРµРґРёРЅРµРЅРёРµ РЎР‘РРЎ", command=lambda: create_connection_window("РЎР‘РРЎ", True), bootstyle=INFO)
+#sbis_button.pack(side=tk.TOP, padx=10, pady=10)
 
-status_label = ttkb.Label(root, text="Не подключено")
+status_label = ttkb.Label(root, text="РќРµ РїРѕРґРєР»СЋС‡РµРЅРѕ")
 status_label.pack(side=tk.TOP, padx=10, pady=0)
 
 root.update_idletasks()

@@ -33,143 +33,159 @@ def get_inn_by_concept(concept_name):
     return inn_mapping.get(concept_name)
 
 
+CONCEPT_PASS_LIST = ['ИП Андреев И.В.']
+INN_IGNORE_LIST = []
+
+
+def initialize_managers(connection):
+    try:
+        iiko_conn = connection.get('iiko')
+        iiko = IIKOManager(iiko_conn['login'], iiko_conn['password_hash'], iiko_conn['server_address'])
+
+        sbis_conn = connection.get('sbis')
+        sbis = SBISManager(sbis_conn['login'], sbis_conn['password_hash'], sbis_conn['regulation_id'])
+        return sbis, iiko
+    except Exception as e:
+        warning(f"Ошибка инициализации: {e}")
+        return None, None
+
+
+async def process_documents(iiko, sbis):
+    concepts = iiko.get_concepts()
+    search_date = datetime.now() - timedelta(days=search_doc_days)
+    income_iiko_docs = xmltodict.parse(iiko.search_income_docs(search_date.strftime('%Y-%m-%d')))
+    assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'В IIKO нет приходных накладных'
+
+    invoice_docs = income_iiko_docs['incomingInvoiceDtoes']['document']
+    if type(invoice_docs) is dict:
+        invoice_docs = [invoice_docs]
+
+    for iiko_doc in reversed(invoice_docs):
+        assert stop_event.is_set() is False, 'Программа завершила работу'
+
+        try:
+            iiko_doc["documentNumber"] = iiko_doc.get("documentNumber").replace(' ', '')
+            iiko_doc_num = iiko_doc["documentNumber"]
+            info(f'№{iiko_doc_num} от {iiko_doc.get("incomingDate")} обрабатывается...')
+
+            if iiko_doc.get('status') != 'PROCESSED':
+                info(f'Неактуален в IIKO. Пропуск... \n')
+                continue
+
+            concept_id = iiko_doc.get('conception')
+            info(f"""{concept_id = }""")
+            if concept_id is None or concept_id == '2609b25f-2180-bf98-5c1c-967664eea837':
+                info(f'Без концепции в IIKO. Пропуск... \n')
+                continue
+
+            else:
+                concept_name = concepts.get(f'{concept_id}')
+                info(f"""{concept_name = }""")
+
+                if concept_name in conceptions_ignore:
+                    info(f'Концепция в чёрном списке. Пропуск... \n')
+                    continue
+
+                if 'ооо' in concept_name.lower():
+                    is_sole_trader = False
+                else:
+                    is_sole_trader = True
+
+            supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
+            info(supplier)
+
+            if supplier.get('name') is None or supplier.get('name').lower() == 'рынок':
+                info(f'Мягкий чек в IIKO. Пропуск...\n')
+                continue
+
+            if stop_event.is_set():
+                break
+
+            while not validate_supplier(iiko.supplier_search_by_id(iiko_doc.get("supplier"))):
+                if stop_event.is_set():
+                    break
+                message = (f"Некорректные данные поставщика в IIKO:\n"
+                           f"{supplier.get('name')}\n"
+                           f"ИНН: {supplier.get('inn', 'Не заполнено')}\n"
+                           f"Доп. сведения: {supplier.get('note', '')}\n"
+                           f"\n"
+                           f"Корректно пропишите ИНН для физ. лиц\n"
+                           f"Для юр. лиц впишите КПП в карточке поставщика во вкладке \"Дополнительные сведения\" в белом прямоугольнике для текста\n"
+                           f"в формате \"КПП: 123456789\".\n"
+                           f"\n"
+                           f"Исправьте данные, подождите полминуты, и нажмите\n"
+                           f"[ Попробовать снова ]\n")
+                if user_has_allowed(message, 'Пропустить документ', "Попробовать снова"):
+                    break
+            if stop_event.is_set():
+                break
+            income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
+            sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
+
+            if sbis_doc:
+                warning(f'Документ уже обработан в СБИС. Пропуск... \n')
+                continue
+
+            sbis_xml_base64, total_price = create_sbis_xml_and_get_total_sum(iiko_doc, supplier)
+
+            if sbis.found_duplicate_and_user_passed(income_date, total_price, supplier):
+                continue
+
+            org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
+            responsible = create_responsible_dict(org_info.get('store_name'))
+
+            org_inn = get_inn_by_concept(concept_name)
+            if is_sole_trader and org_inn is not None:
+                organisation = {"СвФЛ": {"ИНН": org_inn}}
+            else:
+                organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
+                                         "КПП": org_info.get('kpp')}}
+
+                if organisation["СвЮЛ"]["ИНН"] in conceptions_ignore:
+                    info('Это внутреннее перемещение.')
+                    continue
+
+            params = {"Документ": {"Тип": "ДокОтгрВх",
+                                   "Регламент": {"Идентификатор": sbis.regulation_id},
+                                   'Номер': iiko_doc_num,
+                                   "Примечание": supplier.get('name'),
+                                   "Ответственный": responsible,
+                                   "НашаОрганизация": organisation,
+                                   "Вложение": [
+                                       {'Файл': {'Имя': xml_buffer_filepath,
+                                                 'ДвоичныеДанные': sbis_xml_base64}}]
+                                   }}
+            agreement = sbis.search_agr(supplier['inn'])
+            if agreement is None or agreement == 'None':
+                await sbis.write_doc_without_agreement(params, supplier)
+            else:
+                await sbis.write_doc_with_agreement(params, supplier, agreement, income_date)
+
+            update_queue.put(lambda: update_status(connection, '✔ Подключено'))
+            warning(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
+
+        except Exception as e:
+            warning(f'Ошибка при обработке документа: {e} | {traceback.format_exc()}')
+            break
+
+
 stop_event = threading.Event()
 
 
 async def job(connections):
-    info(f"Запуск цикла...")
+    info("Запуск цикла...")
     doc_count = 0
     while not stop_event.is_set():
         try:
             for connection in connections:
-
-                sbis_conn = connection.get('sbis')
-                assert sbis_conn, 'Внесите информацию аккаунта СБИС'
-                sbis = SBISManager(sbis_conn['login'], sbis_conn['password_hash'], sbis_conn['regulation_id'])
-
-                iiko_conn = connection['sbis']
-                assert iiko_conn, 'Внесите информацию аккаунта IIKO'
-                iiko = IIKOManager(iiko_conn['login'], iiko_conn['password_hash'], iiko_conn['server_address'])
+                iiko = connection.get('saby')
+                sbis = connection.get('iiko')
+                if not sbis or not iiko:
+                    continue
 
                 try:
-                    concepts = iiko.get_concepts()
-                    search_date = datetime.now() - timedelta(days=search_doc_days)
-                    income_iiko_docs = xmltodict.parse(iiko.search_income_docs(search_date.strftime('%Y-%m-%d')))
-                    assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'В IIKO нет приходных накладных'
-
-                    invoice_docs = income_iiko_docs['incomingInvoiceDtoes']['document']
-                    if type(invoice_docs) is dict:
-                        invoice_docs = [invoice_docs]
-
-                    for iiko_doc in reversed(invoice_docs):
-                        assert stop_event.is_set() is False, 'Программа завершила работу'
-
-                        try:
-                            iiko_doc["documentNumber"] = iiko_doc.get("documentNumber").replace(' ', '')
-                            iiko_doc_num = iiko_doc["documentNumber"]
-                            info(f'№{iiko_doc_num} от {iiko_doc.get("incomingDate")} обрабатывается...')
-
-                            if iiko_doc.get('status') != 'PROCESSED':
-                                info(f'Неактуален в IIKO. Пропуск... \n')
-                                continue
-
-                            concept_id = iiko_doc.get('conception')
-                            info(f"""{concept_id = }""")
-                            if concept_id is None or concept_id == '2609b25f-2180-bf98-5c1c-967664eea837':
-                                info(f'Без концепции в IIKO. Пропуск... \n')
-                                continue
-
-                            else:
-                                concept_name = concepts.get(f'{concept_id}')
-                                info(f"""{concept_name = }""")
-
-                                if concept_name in conceptions_ignore:
-                                    info(f'Концепция в чёрном списке. Пропуск... \n')
-                                    continue
-
-                                if 'ооо' in concept_name.lower():
-                                    is_sole_trader = False
-                                else:
-                                    is_sole_trader = True
-
-                            supplier = iiko.supplier_search_by_id(iiko_doc.get("supplier"))
-                            info(supplier)
-
-                            if supplier.get('name') is None or supplier.get('name').lower() == 'рынок':
-                                info(f'Мягкий чек в IIKO. Пропуск...\n')
-                                continue
-
-                            if stop_event.is_set():
-                                break
-
-                            while not validate_supplier(iiko.supplier_search_by_id(iiko_doc.get("supplier"))):
-                                if stop_event.is_set():
-                                    break
-                                message = (f"Некорректные данные поставщика в IIKO:\n"
-                                           f"{supplier.get('name')}\n"
-                                           f"ИНН: {supplier.get('inn', 'Не заполнено')}\n"
-                                           f"Доп. сведения: {supplier.get('note', '')}\n"
-                                           f"\n"
-                                           f"Корректно пропишите ИНН для физ. лиц\n"
-                                           f"Для юр. лиц впишите КПП в карточке поставщика во вкладке \"Дополнительные сведения\" в белом прямоугольнике для текста\n"
-                                           f"в формате \"КПП: 123456789\".\n"
-                                           f"\n"
-                                           f"Исправьте данные, подождите полминуты, и нажмите\n"
-                                           f"[ Попробовать снова ]\n")
-                                if user_has_allowed(message, 'Пропустить документ', "Попробовать снова"):
-                                    break
-                            if stop_event.is_set():
-                                break
-                            income_date = datetime.fromisoformat(iiko_doc.get("incomingDate")).strftime('%d.%m.%Y')
-                            sbis_doc = sbis.search_doc(iiko_doc_num, 'ДокОтгрВх', income_date)
-
-                            if sbis_doc:
-                                warning(f'Документ уже обработан в СБИС. Пропуск... \n')
-                                continue
-
-                            sbis_xml_base64, total_price = create_sbis_xml_and_get_total_sum(iiko_doc, supplier)
-
-                            if sbis.found_duplicate_and_user_passed(income_date, total_price, supplier):
-                                continue
-
-                            org_info = iiko.get_org_info_by_store_id(iiko_doc.get("defaultStore"))
-                            responsible = create_responsible_dict(org_info.get('store_name'))
-
-                            org_inn = get_inn_by_concept(concept_name)
-                            if is_sole_trader and org_inn is not None:
-                                organisation = {"СвФЛ": {"ИНН": org_inn}}
-                            else:
-                                organisation = {"СвЮЛ": {"ИНН": org_info.get('inn'),
-                                                         "КПП": org_info.get('kpp')}}
-
-                                if organisation["СвЮЛ"]["ИНН"] in conceptions_ignore:
-                                    info('Это внутреннее перемещение.')
-                                    continue
-
-                            params = {"Документ": {"Тип": "ДокОтгрВх",
-                                                   "Регламент": {"Идентификатор": sbis.regulation_id},
-                                                   'Номер': iiko_doc_num,
-                                                   "Примечание": supplier.get('name'),
-                                                   "Ответственный": responsible,
-                                                   "НашаОрганизация": organisation,
-                                                   "Вложение": [
-                                                       {'Файл': {'Имя': xml_buffer_filepath,
-                                                                 'ДвоичныеДанные': sbis_xml_base64}}]
-                                                   }}
-                            agreement = sbis.search_agr(supplier['inn'])
-                            if agreement is None or agreement == 'None':
-                                sbis.write_doc_without_agreement(params, supplier)
-                            else:
-                                sbis.write_doc_with_agreement(params, supplier, agreement, income_date)
-
-                            update_queue.put(lambda: update_status(connection, '✔ Подключено'))
-                            doc_count += 1
-                            warning(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
-
-                        except Exception as e:
-                            warning(f'Ошибка при обработке документа: {e} | {traceback.format_exc()}')
-                            break
-
+                    await process_documents(iiko, sbis)
+                    doc_count += 1
                 except NoAuth:
                     update_queue.put(lambda: update_status(connection, 'Неверный логин/пароль'))
 

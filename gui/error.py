@@ -11,15 +11,15 @@ from utils.tools import error_windows_size
 
 
 def user_has_allowed(text, true_button_text, false_button_text):
-    """Показывает окно с введённым текстом. Внизу кнопки, возвращающие True и False"""
+    """РџРѕРєР°Р·С‹РІР°РµС‚ РѕРєРЅРѕ СЃ РІРІРµРґС‘РЅРЅС‹Рј С‚РµРєСЃС‚РѕРј. Р’РЅРёР·Сѓ РєРЅРѕРїРєРё, РІРѕР·РІСЂР°С‰Р°СЋС‰РёРµ True Рё False"""
     error_window = ttkb.Toplevel()
     result = tk.BooleanVar()
 
-    # Создание фрейма для текста
+    # РЎРѕР·РґР°РЅРёРµ С„СЂРµР№РјР° РґР»СЏ С‚РµРєСЃС‚Р°
     inner_frame = ttkb.Frame(error_window, borderwidth=0, relief="solid")
     inner_frame.pack(expand=True, fill='both', padx=1, pady=1)
 
-    # Использование Text виджета для выделяемого текста с серым фоном
+    # РСЃРїРѕР»СЊР·РѕРІР°РЅРёРµ Text РІРёРґР¶РµС‚Р° РґР»СЏ РІС‹РґРµР»СЏРµРјРѕРіРѕ С‚РµРєСЃС‚Р° СЃ СЃРµСЂС‹Рј С„РѕРЅРѕРј
     error_text = tk.Text(inner_frame, height=16, width=46, wrap='word', fg="red",
                          font=font.nametofont("TkDefaultFont"),
                          relief=tk.FLAT, bd=0)
@@ -29,13 +29,13 @@ def user_has_allowed(text, true_button_text, false_button_text):
     error_text.config(state=tk.DISABLED)
     error_text.pack(pady=0)
 
-    # Добавление кнопки для закрытия окна
+    # Р”РѕР±Р°РІР»РµРЅРёРµ РєРЅРѕРїРєРё РґР»СЏ Р·Р°РєСЂС‹С‚РёСЏ РѕРєРЅР°
     close_button = ttkb.Button(inner_frame, text="X",
                                command=set_false_result(result, error_window),
                                bootstyle=(PRIMARY, OUTLINE))
     close_button.pack(side='top', anchor='ne', padx=5, pady=5)
 
-    # Создание фрейма для кнопок
+    # РЎРѕР·РґР°РЅРёРµ С„СЂРµР№РјР° РґР»СЏ РєРЅРѕРїРѕРє
     button_frame = ttkb.Frame(inner_frame)
     button_frame.pack(pady=10)
 
@@ -51,21 +51,21 @@ def user_has_allowed(text, true_button_text, false_button_text):
 
     show_notification(text)
 
-    error_window.title("Ошибка")
-    error_window.overrideredirect(True)  # Убирает рамку окна, включая верхнюю черную грань
+    error_window.title("РћС€РёР±РєР°")
+    error_window.overrideredirect(True)  # РЈР±РёСЂР°РµС‚ СЂР°РјРєСѓ РѕРєРЅР°, РІРєР»СЋС‡Р°СЏ РІРµСЂС…РЅСЋСЋ С‡РµСЂРЅСѓСЋ РіСЂР°РЅСЊ
     error_window.geometry(error_windows_size)
     error_window.config(bg='black')
 
     def lift_above_all(window, event=None):
         window.lift()
-        window.after(100, lift_above_all, ())  # Повторно вызывать каждые 100 мс
+        window.after(100, lift_above_all, ())  # РџРѕРІС‚РѕСЂРЅРѕ РІС‹Р·С‹РІР°С‚СЊ РєР°Р¶РґС‹Рµ 100 РјСЃ
 
-    lift_above_all(error_window)  # Вызовем lift_above_all сразу после создания окна
+    lift_above_all(error_window)  # Р’С‹Р·РѕРІРµРј lift_above_all СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ СЃРѕР·РґР°РЅРёСЏ РѕРєРЅР°
 
     add_close_protocol(result, error_window)
     add_mouse_moving_trait(error_window)
     error_window.wait_variable(result)
 
-    warning(f'Уведомление об ошибке: {text}')
-    info(f'Нажата кнопка с результатом: {result.get()}')
+    warning(f'РЈРІРµРґРѕРјР»РµРЅРёРµ РѕР± РѕС€РёР±РєРµ: {text}')
+    info(f'РќР°Р¶Р°С‚Р° РєРЅРѕРїРєР° СЃ СЂРµР·СѓР»СЊС‚Р°С‚РѕРј: {result.get()}')
     return result.get()
