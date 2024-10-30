@@ -23,6 +23,6 @@ main_title = 'Выгрузка из IIKO в СБИС'
 theme = "journal"
 
 [gui.window_size]
-adding = "210x250"
-main = "420x490"
+adding = "280x267"
+main = "850x300"
 error = "440x410"
