@@ -1,14 +1,12 @@
 import asyncio
 import logging
 import traceback
+import xmltodict
 from datetime import datetime, timedelta
 from logging import info, warning
-import threading
-
-import xmltodict
 
 from gui.error import user_has_allowed
-from gui.main_menu import update_status
+from gui.main_menu import update_status, stop_event
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
 from utils.programm_loop import update_queue
@@ -54,6 +52,7 @@ async def process_documents(iiko, sbis):
     concepts = iiko.get_concepts()
     search_date = datetime.now() - timedelta(days=search_doc_days)
     income_iiko_docs = xmltodict.parse(iiko.search_income_docs(search_date.strftime('%Y-%m-%d')))
+
     assert income_iiko_docs['incomingInvoiceDtoes'] is not None, 'В IIKO нет приходных накладных'
 
     invoice_docs = income_iiko_docs['incomingInvoiceDtoes']['document']
@@ -161,15 +160,11 @@ async def process_documents(iiko, sbis):
             else:
                 await sbis.write_doc_with_agreement(params, supplier, agreement, income_date)
 
-            update_queue.put(lambda: update_status(connection, '✔ Подключено'))
             warning(f"Накладная №{iiko_doc_num} от {income_date} успешно скопирована в СБИС из IIKO.\n")
 
         except Exception as e:
             warning(f'Ошибка при обработке документа: {e} | {traceback.format_exc()}')
             break
-
-
-stop_event = threading.Event()
 
 
 async def job(connections):
@@ -178,23 +173,35 @@ async def job(connections):
     while not stop_event.is_set():
         try:
             for connection in connections:
-                iiko = connection.get('saby')
-                sbis = connection.get('iiko')
+                connection_id = connection.get('id')
+
+                sbis_conn = connection.get('saby')
+                sbis = SBISManager(sbis_conn['login'],
+                                   sbis_conn['password_hash'],
+                                   sbis_conn['regulation_id'])
+
+                iiko_conn = connection.get('iiko')
+                iiko = IIKOManager(iiko_conn['login'],
+                                   iiko_conn['password_hash'],
+                                   iiko_conn['server_url'])
+
                 if not sbis or not iiko:
                     continue
 
                 try:
                     await process_documents(iiko, sbis)
+                    update_queue.put(lambda: update_status(connection_id, '✔ Подключено'))
                     doc_count += 1
+
                 except NoAuth:
-                    update_queue.put(lambda: update_status(connection, 'Неверный логин/пароль'))
+                    update_queue.put(lambda: update_status(connection_id, 'Неверный логин/пароль'))
 
                 except Exception as e:
-                    update_queue.put(lambda: update_status(connection, f'(!) Ошибка'))
+                    update_queue.put(lambda: update_status(connection_id, f'(!) Ошибка'))
                     warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
 
                 except ConnectionError:
-                    update_queue.put(lambda: update_status(connection, f'(?) Подключение...'))
+                    update_queue.put(lambda: update_status(connection_id, f'(?) Подключение...'))
 
         except Exception as e:
             logging.critical(f'Ошибка: {e}\n\n {traceback.format_exc()}')

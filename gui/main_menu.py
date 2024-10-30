@@ -4,24 +4,19 @@ import tempfile
 import threading
 import tkinter as tk
 import ttkbootstrap as ttkb
-
 from logging import info
 from tkinter import ttk
-from ttkbootstrap import INFO
 
-# from gui.connection import create_connection_window
-from main import new_loop, thread
 from utils.db import Connection
 from utils.db_data_takers import get_connections_data, Session
-from utils.job import stop_event
 from utils.programm_loop import update_queue, process_queue
 from utils.tools import theme, title, main_windows_size
 
 
-def update_status(login, new_status):
+def update_status(conn_id, new_status):
     for line in tree.get_children():
-        if tree.item(line, 'values')[0] == login:
-            tree.item(line, values=(login, new_status))
+        if tree.item(line, 'values')[0] == conn_id:
+            tree.item(line, values=(conn_id, new_status))
             break
 
 
@@ -41,34 +36,36 @@ def remove_connection():
                 tree.delete(line)
 
 
+stop_event = threading.Event()
+
+
 def exit_program():
+    from main import new_loop, thread
+
     stop_event.set()
     root.withdraw()
     # Закрываем все открытые дочерние окна
     for window in root.winfo_children():
         if isinstance(window, tk.Toplevel):
             window.destroy()
-    # Останавливаем асинхронный цикл событий
-    new_loop.call_soon_threadsafe(new_loop.stop)
     # Убедитесь, что вызывается thread.join() для фонового потока, если он не был завершен
     if thread.is_alive():
         thread.join()
-    # Явно закрываем асинхронный цикл событий
-    new_loop.close()
-    # Передаем управление обратно в основной поток Tkinter'а, чтобы завершить программу
-    root.quit()
-
     # Выводим информацию о всех активных потоках перед закрытием приложения
     for t in threading.enumerate():
-        if t is threading.main_thread():
-            continue  # Игнорируем главный поток
         if t.is_alive():
             info(f'Ожидание завершения потока: {t.name}')
             t.join()
 
+    # Останавливаем асинхронный цикл событий
+    new_loop.call_soon_threadsafe(new_loop.stop)
+    # Явно закрываем асинхронный цикл событий
+    new_loop.close()
+    # Передаем управление обратно в основной поток Tkinter'а, чтобы завершить программу
+    root.quit()
     # Полное закрытие приложения
     root.destroy()
-    sys.exit()
+    sys.exit(0)
 
 
 root = ttkb.Window(themename=theme, title=title)
@@ -103,14 +100,14 @@ connections = get_connections_data()
 for conn in connections:
     tree.insert('', 'end', values=(conn['id'], conn['saby']['login'], conn['iiko']['login']))
 
-#ttk.Button(root, text="Добавить соединение", command=lambda: create_connection_window("")).pack(pady=20)
+from gui.connection import create_sbis_connection_window, create_iiko_connection_window, connect_accounts_window
+ttk.Button(root, text="Добавить аккаунт СБИС", command=lambda: create_sbis_connection_window('Новый аккаунт СБИС')).pack(pady=20)
+ttk.Button(root, text="Добавить аккаунт IIKO", command=lambda: create_iiko_connection_window()).pack(pady=20)
+ttk.Button(root, text="Добавить соединение", command=lambda: connect_accounts_window()).pack(pady=20)
 ttk.Button(root, text="Удалить соединение", command=remove_connection).pack(pady=5)
 
 separator = ttkb.Separator(root)
 separator.pack(fill='x', padx=5, pady=20)
-
-#sbis_button = ttk.Button(root, text="Соединение СБИС", command=lambda: create_connection_window("СБИС", True), bootstyle=INFO)
-#sbis_button.pack(side=tk.TOP, padx=10, pady=10)
 
 status_label = ttkb.Label(root, text="Не подключено")
 status_label.pack(side=tk.TOP, padx=10, pady=0)

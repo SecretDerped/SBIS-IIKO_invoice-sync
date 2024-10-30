@@ -1,11 +1,7 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from utils.db import Connection
+from utils.db import Connection, Session, Base, engine, IIKOConnection, SABYConnection
 
-# Настройка подключения к базе данных
-DATABASE_URL = 'sqlite:///connections.db'
-engine = create_engine(DATABASE_URL)
-Session = sessionmaker(bind=engine)
+# Создание таблиц в базе
+Base.metadata.create_all(engine)
 
 
 def get_connections_data():
@@ -34,3 +30,19 @@ def get_connections_data():
             })
 
     return result
+
+
+def get_iiko_accounts():
+    with Session() as session:
+        return session.query(IIKOConnection).all()
+
+
+def get_saby_accounts():
+    with Session() as session:
+        return session.query(SABYConnection).all()
+
+
+def add_to_db(model):
+    with Session() as session:
+        session.add(model)
+        session.commit()

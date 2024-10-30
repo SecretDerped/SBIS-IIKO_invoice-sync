@@ -35,27 +35,27 @@ class IIKOManager:
         match res.status_code:
 
             case 200:
-                info(f'Авторизация в IIKO прошла. {login}: вход выполнен.')
+                info(f'РђРІС‚РѕСЂРёР·Р°С†РёСЏ РІ IIKO РїСЂРѕС€Р»Р°. {login}: РІС…РѕРґ РІС‹РїРѕР»РЅРµРЅ.')
                 with open(f"{login}_iiko_token.txt", "w+") as file:
                     iiko_key = res.text
                     file.write(str(iiko_key))
                     return iiko_key
 
             case 401:
-                update_queue.put(lambda: update_status(login, 'Неверный логин/пароль'))
-                raise NoAuth('Неверный логин/пароль. \n'
-                             'Пароль можно изменить в IIKO Office:\n'
-                             '-- [Администрирование]\n'
-                             '-- [Права доступа]\n'
-                             '-- Правой кнопкой мыши по пользователю\n'
-                             '-- [Редактировать пользователя]\n'
-                             '-- Поле "Пароль"\n'
-                             '-- [Сохранить]')
+                update_queue.put(lambda: update_status(login, 'РќРµРІРµСЂРЅС‹Р№ Р»РѕРіРёРЅ/РїР°СЂРѕР»СЊ'))
+                raise NoAuth('РќРµРІРµСЂРЅС‹Р№ Р»РѕРіРёРЅ/РїР°СЂРѕР»СЊ. \n'
+                             'РџР°СЂРѕР»СЊ РјРѕР¶РЅРѕ РёР·РјРµРЅРёС‚СЊ РІ IIKO Office:\n'
+                             '-- [РђРґРјРёРЅРёСЃС‚СЂРёСЂРѕРІР°РЅРёРµ]\n'
+                             '-- [РџСЂР°РІР° РґРѕСЃС‚СѓРїР°]\n'
+                             '-- РџСЂР°РІРѕР№ РєРЅРѕРїРєРѕР№ РјС‹С€Рё РїРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ\n'
+                             '-- [Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ]\n'
+                             '-- РџРѕР»Рµ "РџР°СЂРѕР»СЊ"\n'
+                             '-- [РЎРѕС…СЂР°РЅРёС‚СЊ]')
 
             case _, *code:
-                update_queue.put(lambda: update_status(login, f'(!) Ошибка. Код: {code}'))
+                update_queue.put(lambda: update_status(login, f'(!) РћС€РёР±РєР°. РљРѕРґ: {code}'))
 
-                raise NoAuth(f'Код {code}, не удалось авторизоваться в IIKO. Ответ сервера: {res.text}')
+                raise NoAuth(f'РљРѕРґ {code}, РЅРµ СѓРґР°Р»РѕСЃСЊ Р°РІС‚РѕСЂРёР·РѕРІР°С‚СЊСЃСЏ РІ IIKO. РћС‚РІРµС‚ СЃРµСЂРІРµСЂР°: {res.text}')
 
     def get_account_with_key(self):
         login = self.login
@@ -67,7 +67,7 @@ class IIKOManager:
                 return {'login': login, 'password': password, 'key': iiko_key}
 
         except FileNotFoundError:
-            info(f'Аккаунт IIKO - {login}: авторизуемся...')
+            info(f'РђРєРєР°СѓРЅС‚ IIKO - {login}: Р°РІС‚РѕСЂРёР·СѓРµРјСЃСЏ...')
             iiko_key = self.get_auth(password)
             return {'login': login, 'password': password, 'key': iiko_key}
 
@@ -95,7 +95,7 @@ class IIKOManager:
         match res.status_code:
 
             case 200:
-                update_queue.put(lambda: update_status(iiko_account.get('login'), f'? Подключено'))
+                update_queue.put(lambda: update_status(iiko_account.get('login'), f'? РџРѕРґРєР»СЋС‡РµРЅРѕ'))
                 time.sleep(0.3)
                 return res.text
 
@@ -106,9 +106,9 @@ class IIKOManager:
 
             case _, *code:
                 warning(f'Code: {code}, Method: GET {method}, response: {res.text}')
-                update_queue.put(lambda: update_status(self.login, f'(!) Ошибка. Код: {code}'))
+                update_queue.put(lambda: update_status(self.login, f'(!) РћС€РёР±РєР°. РљРѕРґ: {code}'))
 
-                text = f"Ошибка в подключении к IIKO. Код ошибки {code}. Обратитесь к системному администратору.",
+                text = f"РћС€РёР±РєР° РІ РїРѕРґРєР»СЋС‡РµРЅРёРё Рє IIKO. РљРѕРґ РѕС€РёР±РєРё {code}. РћР±СЂР°С‚РёС‚РµСЃСЊ Рє СЃРёСЃС‚РµРјРЅРѕРјСѓ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ.",
                 show_notification(text)
 
                 return f'Error {code}. See warning logs.'
@@ -120,9 +120,9 @@ class IIKOManager:
         return self.get_query(f'documents/export/incomingInvoice', params)
 
     def supplier_search_by_id(self, supplier_id: str = ''):
-        """Возвращает данные поставщика по его id.
-        Id поставщика можно найти в поле документа-поступления ['supplierId'] из метода search_income_docs()
-        Документация: https://ru.iiko.help/articles/#!api-documentations/suppliers"""
+        """Р’РѕР·РІСЂР°С‰Р°РµС‚ РґР°РЅРЅС‹Рµ РїРѕСЃС‚Р°РІС‰РёРєР° РїРѕ РµРіРѕ id.
+        Id РїРѕСЃС‚Р°РІС‰РёРєР° РјРѕР¶РЅРѕ РЅР°Р№С‚Рё РІ РїРѕР»Рµ РґРѕРєСѓРјРµРЅС‚Р°-РїРѕСЃС‚СѓРїР»РµРЅРёСЏ ['supplierId'] РёР· РјРµС‚РѕРґР° search_income_docs()
+        Р”РѕРєСѓРјРµРЅС‚Р°С†РёСЏ: https://ru.iiko.help/articles/#!api-documentations/suppliers"""
 
         suppliers_list = xmltodict.parse(self.get_query('suppliers'))
 
@@ -141,7 +141,7 @@ class IIKOManager:
 
             note = res.get('note')
             if note:
-                kpp_pattern = r"КПП:(\d{9})"
+                kpp_pattern = r"РљРџРџ:(\d{9})"
                 match = re.search(kpp_pattern, note.replace(' ', ''))
                 if match:
                     res['kpp'] = match.group(1)

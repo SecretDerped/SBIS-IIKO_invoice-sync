@@ -14,24 +14,25 @@ def show_notification(text):
     toast.show_toast()
 
 
-def add_mouse_moving_trait(window: ttkb.Window | ttkb.Frame | ttkb.Toplevel):
+def add_mouse_moving_trait(window):
     """Привязка событий для перемещения окна"""
-    def start_move(window, event=None):
-        window.x = event.x
-        window.y = event.y
+    def start_move(window_params, event=None):
+        window_params.x = event.x
+        window_params.y = event.y
     window.bind("<ButtonPress-1>", start_move)
 
-    def stop_move(window, event=None):
-        window.x = None
-        window.y = None
+    def stop_move(window_params, event=None):
+        window_params.x = None
+        window_params.y = None
     window.bind("<ButtonRelease-1>", stop_move)
 
-    def on_move(window, event=None):
-        delta_x = event.x - window.x
-        delta_y = event.y - window.y
-        x = window.winfo_x() + delta_x
-        y = window.winfo_y() + delta_y
-        window.geometry(f"+{x}+{y}")
+    def on_move(window_params, event=None):
+        if event:
+            delta_x = event.x - window_params.x
+            delta_y = event.y - window_params.y
+            x = window_params.winfo_x() + delta_x
+            y = window_params.winfo_y() + delta_y
+            window_params.geometry(f"+{x}+{y}")
     window.bind("<B1-Motion>", on_move(window))
 
 

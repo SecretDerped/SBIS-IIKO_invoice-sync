@@ -19,10 +19,10 @@ inns_ignore = [
 ]
 
 [gui]
-main_title = 'Соединения для ООО "Перезагрузка"'
+main_title = 'Выгрузка из IIKO в СБИС'
 theme = "journal"
 
 [gui.window_size]
-adding = "210x230"
-main = "340x490"
+adding = "210x250"
+main = "420x490"
 error = "440x410"

@@ -1,15 +1,16 @@
 import sqlite3
 
-from sqlalchemy import create_engine
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, ForeignKey, create_engine
+from sqlalchemy.orm import relationship, declarative_base, sessionmaker
+
+# Настройка подключения к базе данных. Создаём пул подключений
+DATABASE_URL = 'sqlite:///connections.db'
+engine = create_engine(DATABASE_URL, echo=True)
+Session = sessionmaker(bind=engine)
 
 # Создаем подключение к базе данных (файл my_database.db будет создан)
 connection = sqlite3.connect('connections.db')
 connection.close()
-
 Base = declarative_base()
 
 
@@ -46,4 +47,3 @@ class Connection(Base):
     # Устанавливаем отношения для удобного обращения к связанным данным
     saby_connection = relationship("SABYConnection", back_populates="connections")
     iiko_connection = relationship("IIKOConnection", back_populates="connections")
-

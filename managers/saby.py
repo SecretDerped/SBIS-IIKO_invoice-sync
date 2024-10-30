@@ -20,22 +20,22 @@ class SBISManager:
         self.headers = {'Host': 'online.sbis.ru',
                         'Content-Type': 'application/json-rpc; charset=utf-8',
                         'Accept': 'application/json-rpc'}
-        self.attribute_error_message = (f'Ошибка в номенклатуре.\n'
-                                        f'Добавьте в СБИС позиции из IIKO:\n\n'
-                                        f'[ Бизнес ]\n'
-                                        f'[ Каталог ]\n'
+        self.attribute_error_message = (f'РћС€РёР±РєР° РІ РЅРѕРјРµРЅРєР»Р°С‚СѓСЂРµ.\n'
+                                        f'Р”РѕР±Р°РІСЊС‚Рµ РІ РЎР‘РРЎ РїРѕР·РёС†РёРё РёР· IIKO:\n\n'
+                                        f'[ Р‘РёР·РЅРµСЃ ]\n'
+                                        f'[ РљР°С‚Р°Р»РѕРі ]\n'
                                         f'[ + ]\n'
-                                        f'[ Загрузить    > ]\n'
-                                        f'[ Выгрузка номенклатуры из IIKO ]\n\n\n'
-                                        f'В СБИС справа внизу появится таймер, показывающий прогресс переноса позиций.\n'
-                                        f'Подождите, пока всё не синхронизируется, и запустите\n'
-                                        f'программу снова.')
+                                        f'[ Р—Р°РіСЂСѓР·РёС‚СЊ    > ]\n'
+                                        f'[ Р’С‹РіСЂСѓР·РєР° РЅРѕРјРµРЅРєР»Р°С‚СѓСЂС‹ РёР· IIKO ]\n\n\n'
+                                        f'Р’ РЎР‘РРЎ СЃРїСЂР°РІР° РІРЅРёР·Сѓ РїРѕСЏРІРёС‚СЃСЏ С‚Р°Р№РјРµСЂ, РїРѕРєР°Р·С‹РІР°СЋС‰РёР№ РїСЂРѕРіСЂРµСЃСЃ РїРµСЂРµРЅРѕСЃР° РїРѕР·РёС†РёР№.\n'
+                                        f'РџРѕРґРѕР¶РґРёС‚Рµ, РїРѕРєР° РІСЃС‘ РЅРµ СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµС‚СЃСЏ, Рё Р·Р°РїСѓСЃС‚РёС‚Рµ\n'
+                                        f'РїСЂРѕРіСЂР°РјРјСѓ СЃРЅРѕРІР°.')
 
     def auth(self, password):
         payload = {"jsonrpc": "2.0",
-                   "method": 'СБИС.Аутентифицировать',
-                   "params": {"Логин": self.login,
-                              "Пароль": password},
+                   "method": 'РЎР‘РРЎ.РђСѓС‚РµРЅС‚РёС„РёС†РёСЂРѕРІР°С‚СЊ',
+                   "params": {"Р›РѕРіРёРЅ": self.login,
+                              "РџР°СЂРѕР»СЊ": password},
                    "protocol": 2,
                    "id": 0}
 
@@ -68,8 +68,8 @@ class SBISManager:
                         'sid': sid}
 
             except Exception:
-                critical(f"Не удалось авторизоваться в СБИС.", exc_info=True)
-                update_sbis_status(login, '(!) Ошибка', "red")
+                critical(f"РќРµ СѓРґР°Р»РѕСЃСЊ Р°РІС‚РѕСЂРёР·РѕРІР°С‚СЊСЃСЏ РІ РЎР‘РРЎ.", exc_info=True)
+                update_sbis_status(login, '(!) РћС€РёР±РєР°', "red")
 
     def main_query(self, method: str, params: dict or str):
         account_data = self.get_account_with_sid()
@@ -92,12 +92,12 @@ class SBISManager:
         match res.status_code:
 
             case 200:
-                update_sbis_status(account_data['login'], 'Подключено', 'green')
+                update_sbis_status(account_data['login'], 'РџРѕРґРєР»СЋС‡РµРЅРѕ', 'green')
                 time.sleep(0.2)
                 return json.loads(res.text)['result']
 
             case 401:
-                info('Требуется обновление токена.')
+                info('РўСЂРµР±СѓРµС‚СЃСЏ РѕР±РЅРѕРІР»РµРЅРёРµ С‚РѕРєРµРЅР°.')
                 time.sleep(1)
                 self.headers['X-SBISSessionID'] = self.auth(account_data['password'])
                 res = niquests.post('https://online.sbis.ru/service/', headers=self.headers,
@@ -105,91 +105,91 @@ class SBISManager:
                 return json.loads(res.text)['result']
 
             case 500:
-                status_label.config(text=f'! Ошибка ! {account_data["login"]}')
+                status_label.config(text=f'! РћС€РёР±РєР° ! {account_data["login"]}')
 
-                text = f"На сервере СБИС произошёл сбой.",
+                text = f"РќР° СЃРµСЂРІРµСЂРµ РЎР‘РРЎ РїСЂРѕРёР·РѕС€С‘Р» СЃР±РѕР№.",
                 show_notification(text)
 
                 raise AttributeError(f'{method}: Check debug logs.')
 
     def search_doc(self, num, doc_type, doc_date):
-        assert any(map(str.isdigit, num)), 'СБИС не сможет найти документ по номеру, в котором нет цифр.'
+        assert any(map(str.isdigit, num)), 'РЎР‘РРЎ РЅРµ СЃРјРѕР¶РµС‚ РЅР°Р№С‚Рё РґРѕРєСѓРјРµРЅС‚ РїРѕ РЅРѕРјРµСЂСѓ, РІ РєРѕС‚РѕСЂРѕРј РЅРµС‚ С†РёС„СЂ.'
 
-        params = {"Фильтр": {"Маска": num,
-                             "ДатаС": doc_date,  # '17.01.2024'
-                             "ДатаПо": doc_date,  # '17.01.2024'
-                             "Тип": doc_type}}
+        params = {"Р¤РёР»СЊС‚СЂ": {"РњР°СЃРєР°": num,
+                             "Р”Р°С‚Р°РЎ": doc_date,  # '17.01.2024'
+                             "Р”Р°С‚Р°РџРѕ": doc_date,  # '17.01.2024'
+                             "РўРёРї": doc_type}}
 
-        res = self.main_query("СБИС.СписокДокументов", params)
-        return None if len(res['Документ']) == 0 else res['Документ'][0]
+        res = self.main_query("РЎР‘РРЎ.РЎРїРёСЃРѕРєР”РѕРєСѓРјРµРЅС‚РѕРІ", params)
+        return None if len(res['Р”РѕРєСѓРјРµРЅС‚']) == 0 else res['Р”РѕРєСѓРјРµРЅС‚'][0]
 
     def search_agr(self, inn):
         if inn is not None:
-            assert any(map(str.isdigit, inn)), 'СБИС не сможет найти договор по номеру, в котором нет цифр'
+            assert any(map(str.isdigit, inn)), 'РЎР‘РРЎ РЅРµ СЃРјРѕР¶РµС‚ РЅР°Р№С‚Рё РґРѕРіРѕРІРѕСЂ РїРѕ РЅРѕРјРµСЂСѓ, РІ РєРѕС‚РѕСЂРѕРј РЅРµС‚ С†РёС„СЂ'
 
-            params = {"Фильтр": {"Маска": inn,
-                                 "ДатаС": '01.01.2020',
-                                 "ДатаПо": date.today().strftime('%d.%m.%Y'),
-                                 "Тип": "ДоговорИсх"}}
+            params = {"Р¤РёР»СЊС‚СЂ": {"РњР°СЃРєР°": inn,
+                                 "Р”Р°С‚Р°РЎ": '01.01.2020',
+                                 "Р”Р°С‚Р°РџРѕ": date.today().strftime('%d.%m.%Y'),
+                                 "РўРёРї": "Р”РѕРіРѕРІРѕСЂРСЃС…"}}
 
-            res = self.main_query("СБИС.СписокДокументов", params)
-            return None if len(res['Документ']) == 0 else res['Документ'][0]
+            res = self.main_query("РЎР‘РРЎ.РЎРїРёСЃРѕРєР”РѕРєСѓРјРµРЅС‚РѕРІ", params)
+            return None if len(res['Р”РѕРєСѓРјРµРЅС‚']) == 0 else res['Р”РѕРєСѓРјРµРЅС‚'][0]
         return None
 
     def agreement_connect(self, agr_id: str, doc_id: str):
         params = {
-            "Документ": {
-                'ВидСвязи': 'Договор',
-                "Идентификатор": agr_id,
-                "ДокументСледствие": {
-                    "Документ": {
-                        'ВидСвязи': 'Договор',
-                        "Идентификатор": doc_id}}}}
+            "Р”РѕРєСѓРјРµРЅС‚": {
+                'Р’РёРґРЎРІСЏР·Рё': 'Р”РѕРіРѕРІРѕСЂ',
+                "РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ": agr_id,
+                "Р”РѕРєСѓРјРµРЅС‚РЎР»РµРґСЃС‚РІРёРµ": {
+                    "Р”РѕРєСѓРјРµРЅС‚": {
+                        'Р’РёРґРЎРІСЏР·Рё': 'Р”РѕРіРѕРІРѕСЂ',
+                        "РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ": doc_id}}}}
 
-        self.main_query("СБИС.ЗаписатьДокумент", params)
+        self.main_query("РЎР‘РРЎ.Р—Р°РїРёСЃР°С‚СЊР”РѕРєСѓРјРµРЅС‚", params)
 
     def get_today_docs(self, income_date, doc_type):
 
-        params = {"Фильтр": {"ДатаС": income_date,
-                             "ДатаПо": income_date,
-                             "Тип": doc_type,
-                             "Навигация": {"РазмерСтраницы": '200'}}}
+        params = {"Р¤РёР»СЊС‚СЂ": {"Р”Р°С‚Р°РЎ": income_date,
+                             "Р”Р°С‚Р°РџРѕ": income_date,
+                             "РўРёРї": doc_type,
+                             "РќР°РІРёРіР°С†РёСЏ": {"Р Р°Р·РјРµСЂРЎС‚СЂР°РЅРёС†С‹": '200'}}}
 
-        res = self.main_query("СБИС.СписокДокументов", params)
-        return None if len(res['Документ']) == 0 else res['Документ']
+        res = self.main_query("РЎР‘РРЎ.РЎРїРёСЃРѕРєР”РѕРєСѓРјРµРЅС‚РѕРІ", params)
+        return None if len(res['Р”РѕРєСѓРјРµРЅС‚']) == 0 else res['Р”РѕРєСѓРјРµРЅС‚']
 
     def found_duplicate_and_user_passed(self, income_date, total_price, supplier):
-        """ Ищет документ в СБИС с такой же суммой и той же датой"""
-        info('Ищем дубликаты в СБИС...')
+        """ РС‰РµС‚ РґРѕРєСѓРјРµРЅС‚ РІ РЎР‘РРЎ СЃ С‚Р°РєРѕР№ Р¶Рµ СЃСѓРјРјРѕР№ Рё С‚РѕР№ Р¶Рµ РґР°С‚РѕР№"""
+        info('РС‰РµРј РґСѓР±Р»РёРєР°С‚С‹ РІ РЎР‘РРЎ...')
 
-        today_docs = self.get_today_docs(income_date, 'ДокОтгрВх')
+        today_docs = self.get_today_docs(income_date, 'Р”РѕРєРћС‚РіСЂР’С…')
         for sbis_doc in today_docs:
-            sbis_sum = sbis_doc.get('Сумма', '0')
+            sbis_sum = sbis_doc.get('РЎСѓРјРјР°', '0')
 
             if sbis_sum == str(total_price):
-                warning(f'Найден похожий документ. Ж \n')
-                sbis_name = sbis_doc.get('Контрагент', '').get('СвЮЛ' or "СвФЛ", '').get(
-                    'НазваниеПолное', 'Неизвестный')
+                warning(f'РќР°Р№РґРµРЅ РїРѕС…РѕР¶РёР№ РґРѕРєСѓРјРµРЅС‚. Р– \n')
+                sbis_name = sbis_doc.get('РљРѕРЅС‚СЂР°РіРµРЅС‚', '').get('РЎРІР®Р›' or "РЎРІР¤Р›", '').get(
+                    'РќР°Р·РІР°РЅРёРµРџРѕР»РЅРѕРµ', 'РќРµРёР·РІРµСЃС‚РЅС‹Р№')
 
-                return user_has_allowed((f'Обнаружен похожий документ:\n'
-                                         f'В IIKO: {income_date} / От {supplier.get("name")} на сумму {total_price}\n'
-                                         f'В СБИС: {income_date} / От {sbis_name} на сумму {sbis_sum}'),
-                                        'Пропустить документ', 'Всё равно записать')
+                return user_has_allowed((f'РћР±РЅР°СЂСѓР¶РµРЅ РїРѕС…РѕР¶РёР№ РґРѕРєСѓРјРµРЅС‚:\n'
+                                         f'Р’ IIKO: {income_date} / РћС‚ {supplier.get("name")} РЅР° СЃСѓРјРјСѓ {total_price}\n'
+                                         f'Р’ РЎР‘РРЎ: {income_date} / РћС‚ {sbis_name} РЅР° СЃСѓРјРјСѓ {sbis_sum}'),
+                                        'РџСЂРѕРїСѓСЃС‚РёС‚СЊ РґРѕРєСѓРјРµРЅС‚', 'Р’СЃС‘ СЂР°РІРЅРѕ Р·Р°РїРёСЃР°С‚СЊ')
         return False
 
     def write_doc_without_agreement(self, params, supplier):
         try:
-            new_sbis_doc = self.main_query("СБИС.ЗаписатьДокумент", params)
-            info(f"Договор с ИНН №{supplier['inn']} не найден в СБИС."
-                 f"Создан документ №{new_sbis_doc['Номер']} без договора с поставщиком.")
+            new_sbis_doc = self.main_query("РЎР‘РРЎ.Р—Р°РїРёСЃР°С‚СЊР”РѕРєСѓРјРµРЅС‚", params)
+            info(f"Р”РѕРіРѕРІРѕСЂ СЃ РРќРќ в„–{supplier['inn']} РЅРµ РЅР°Р№РґРµРЅ РІ РЎР‘РРЎ."
+                 f"РЎРѕР·РґР°РЅ РґРѕРєСѓРјРµРЅС‚ в„–{new_sbis_doc['РќРѕРјРµСЂ']} Р±РµР· РґРѕРіРѕРІРѕСЂР° СЃ РїРѕСЃС‚Р°РІС‰РёРєРѕРј.")
         except AttributeError as e:
             return user_has_allowed(f'{self.attribute_error_message}\n'
                                     f'\n'
-                                    f'Ошибка: {e}',
-                                    "Пропустить документ", 'Всё равно записать')
+                                    f'РћС€РёР±РєР°: {e}',
+                                    "РџСЂРѕРїСѓСЃС‚РёС‚СЊ РґРѕРєСѓРјРµРЅС‚", 'Р’СЃС‘ СЂР°РІРЅРѕ Р·Р°РїРёСЃР°С‚СЊ')
 
     def write_doc_with_agreement(self, params, supplier, agreement, income_date):
-        agreement_note = get_digits(agreement['Примечание'])
+        agreement_note = get_digits(agreement['РџСЂРёРјРµС‡Р°РЅРёРµ'])
         if agreement_note == '':
             agreement_note = '7'
 
@@ -198,17 +198,17 @@ class SBISManager:
             days=payment_days)
         deadline_str = datetime.strftime(deadline, '%d.%m.%Y')
 
-        params['Документ']['Срок'] = deadline_str
-        params['Документ']['ВидСвязи'] = 'Договор'
-        params['Документ']['ДокументОснование'] = {
-            "Документ": {
-                'ВидСвязи': 'Договор',
-                "Идентификатор": agreement["Идентификатор"]}}
+        params['Р”РѕРєСѓРјРµРЅС‚']['РЎСЂРѕРє'] = deadline_str
+        params['Р”РѕРєСѓРјРµРЅС‚']['Р’РёРґРЎРІСЏР·Рё'] = 'Р”РѕРіРѕРІРѕСЂ'
+        params['Р”РѕРєСѓРјРµРЅС‚']['Р”РѕРєСѓРјРµРЅС‚РћСЃРЅРѕРІР°РЅРёРµ'] = {
+            "Р”РѕРєСѓРјРµРЅС‚": {
+                'Р’РёРґРЎРІСЏР·Рё': 'Р”РѕРіРѕРІРѕСЂ',
+                "РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ": agreement["РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ"]}}
         try:
-            new_sbis_doc = self.main_query("СБИС.ЗаписатьДокумент", params)
-            self.agreement_connect(agreement["Идентификатор"], new_sbis_doc["Идентификатор"])
+            new_sbis_doc = self.main_query("РЎР‘РРЎ.Р—Р°РїРёСЃР°С‚СЊР”РѕРєСѓРјРµРЅС‚", params)
+            self.agreement_connect(agreement["РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ"], new_sbis_doc["РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ"])
 
-            info(f"Договор №{supplier['inn']} прикреплён к документу №{new_sbis_doc['Номер']}.")
+            info(f"Р”РѕРіРѕРІРѕСЂ в„–{supplier['inn']} РїСЂРёРєСЂРµРїР»С‘РЅ Рє РґРѕРєСѓРјРµРЅС‚Сѓ в„–{new_sbis_doc['РќРѕРјРµСЂ']}.")
         except AttributeError:
             return user_has_allowed(self.attribute_error_message,
-                                    "Пропустить документ", 'Всё равно записать')
+                                    "РџСЂРѕРїСѓСЃС‚РёС‚СЊ РґРѕРєСѓРјРµРЅС‚", 'Р’СЃС‘ СЂР°РІРЅРѕ Р·Р°РїРёСЃР°С‚СЊ')
