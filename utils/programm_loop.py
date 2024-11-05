@@ -1,9 +1,11 @@
 import asyncio
+from threading import Event
 from asyncio import Queue
-
 from ttkbootstrap import Window
 
+
 update_queue = Queue()
+stop_event = Event()
 
 
 def start_async_loop(loop, event):

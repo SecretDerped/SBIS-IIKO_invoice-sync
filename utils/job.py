@@ -1,15 +1,14 @@
 import asyncio
 import logging
+from logging import info, warning
 import traceback
 import xmltodict
 from datetime import datetime, timedelta
-from logging import info, warning
 
 from gui.error import user_has_allowed
-from gui.main_menu import update_status, stop_event
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
-from utils.programm_loop import update_queue
+from utils.programm_loop import update_queue, stop_event
 from utils.tools import validate_supplier, search_doc_days, conceptions_ignore, \
     xml_buffer_filepath, NoAuth, create_sbis_xml_and_get_total_sum, create_responsible_dict
 
@@ -173,35 +172,33 @@ async def job(connections):
     while not stop_event.is_set():
         try:
             for connection in connections:
-                connection_id = connection.get('id')
 
-                sbis_conn = connection.get('saby')
-                sbis = SBISManager(sbis_conn['login'],
-                                   sbis_conn['password_hash'],
-                                   sbis_conn['regulation_id'])
+                sbis = SBISManager(connection.saby_connection.login,
+                                   connection.saby_connection.password_hash,
+                                   connection.saby_connection.regulation_id)
 
-                iiko_conn = connection.get('iiko')
-                iiko = IIKOManager(iiko_conn['login'],
-                                   iiko_conn['password_hash'],
-                                   iiko_conn['server_url'])
+                iiko = IIKOManager(connection.iiko_connection.login,
+                                   connection.iiko_connection.password_hash,
+                                   connection.iiko_connection.server_url)
 
                 if not sbis or not iiko:
                     continue
 
+                conn_id = connection.id
                 try:
                     await process_documents(iiko, sbis)
-                    update_queue.put(lambda: update_status(connection_id, '✔ Подключено'))
+                    update_queue.put(lambda: update_status(conn_id, '✔ Подключено'))
                     doc_count += 1
 
                 except NoAuth:
-                    update_queue.put(lambda: update_status(connection_id, 'Неверный логин/пароль'))
+                    update_queue.put(lambda: update_status(conn_id, 'Неверный логин/пароль'))
 
                 except Exception as e:
-                    update_queue.put(lambda: update_status(connection_id, f'(!) Ошибка'))
+                    update_queue.put(lambda: update_status(conn_id, f'(!) Ошибка'))
                     warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
 
                 except ConnectionError:
-                    update_queue.put(lambda: update_status(connection_id, f'(?) Подключение...'))
+                    update_queue.put(lambda: update_status(conn_id, f'(?) Подключение...'))
 
         except Exception as e:
             logging.critical(f'Ошибка: {e}\n\n {traceback.format_exc()}')

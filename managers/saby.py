@@ -6,7 +6,6 @@ from logging import info, debug, critical, warning
 import niquests
 
 from gui.error import user_has_allowed
-from gui.main_menu import update_sbis_status, status_label
 from gui.windows import show_notification
 from utils.tools import cryptokey, get_digits
 

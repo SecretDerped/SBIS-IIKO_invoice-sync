@@ -1,7 +1,6 @@
 from logging import warning
 
 from ttkbootstrap import PRIMARY, OUTLINE, SUCCESS
-from gui.main_menu import root
 import ttkbootstrap as ttkb
 
 from utils.db import SABYConnection, IIKOConnection, Connection
@@ -10,7 +9,7 @@ from utils.tools import add_window_size, encode_password
 
 
 class ConnectionWindow:
-    def __init__(self, title):
+    def __init__(self, root, title):
         self.window = ttkb.Toplevel()
         self.window.title(title)
         self.window.geometry(add_window_size)
@@ -66,8 +65,8 @@ class ConnectionWindow:
 
 
 class SABYConnectWindow(ConnectionWindow):
-    def __init__(self, title):
-        super().__init__(title)
+    def __init__(self, root, title):
+        super().__init__(root, title)
         self.set_menu()
 
     def set_menu(self):
@@ -94,8 +93,8 @@ class SABYConnectWindow(ConnectionWindow):
 
 
 class IIKOConnectWindow(ConnectionWindow):
-    def __init__(self, title):
-        super().__init__(title)
+    def __init__(self, root, title):
+        super().__init__(root, title)
         self.set_menu()
 
     def set_menu(self):
@@ -121,8 +120,8 @@ class IIKOConnectWindow(ConnectionWindow):
 
 
 class SetConnectWindow(ConnectionWindow):
-    def __init__(self, title):
-        super().__init__(title)
+    def __init__(self, root, title):
+        super().__init__(root, title)
         self.set_menu()
 
     def set_menu(self):

@@ -43,7 +43,7 @@ class Connection(Base):
     id = Column(Integer, primary_key=True)
     saby_connection_id = Column(Integer, ForeignKey("saby_connections.id"), nullable=False)
     iiko_connection_id = Column(Integer, ForeignKey("iiko_connections.id"), nullable=False)
-
+    status = Column(String)
     # Устанавливаем отношения для удобного обращения к связанным данным
     saby_connection = relationship("SABYConnection", back_populates="connections")
     iiko_connection = relationship("IIKOConnection", back_populates="connections")
