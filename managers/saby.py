@@ -68,7 +68,6 @@ class SBISManager:
 
             except Exception:
                 critical(f"Не удалось авторизоваться в СБИС.", exc_info=True)
-                update_sbis_status(login, '(!) Ошибка', "red")
 
     def main_query(self, method: str, params: dict or str):
         account_data = self.get_account_with_sid()
@@ -91,7 +90,6 @@ class SBISManager:
         match res.status_code:
 
             case 200:
-                update_sbis_status(account_data['login'], 'Подключено', 'green')
                 time.sleep(0.2)
                 return json.loads(res.text)['result']
 
@@ -104,8 +102,6 @@ class SBISManager:
                 return json.loads(res.text)['result']
 
             case 500:
-                status_label.config(text=f'! Ошибка ! {account_data["login"]}')
-
                 text = f"На сервере СБИС произошёл сбой.",
                 show_notification(text)
 

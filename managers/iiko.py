@@ -9,7 +9,6 @@ import niquests
 import xmltodict
 
 from gui.windows import show_notification
-from utils.programm_loop import update_queue
 from utils.tools import cryptokey, iiko_server_address, NoAuth
 
 
@@ -41,7 +40,6 @@ class IIKOManager:
                     return iiko_key
 
             case 401:
-                update_queue.put(lambda: update_status(login, 'Неверный логин/пароль'))
                 raise NoAuth('Неверный логин/пароль. \n'
                              'Пароль можно изменить в IIKO Office:\n'
                              '-- [Администрирование]\n'
@@ -52,8 +50,6 @@ class IIKOManager:
                              '-- [Сохранить]')
 
             case _, *code:
-                update_queue.put(lambda: update_status(login, f'(!) Ошибка. Код: {code}'))
-
                 raise NoAuth(f'Код {code}, не удалось авторизоваться в IIKO. Ответ сервера: {res.text}')
 
     def get_account_with_key(self):
@@ -94,7 +90,6 @@ class IIKOManager:
         match res.status_code:
 
             case 200:
-                update_queue.put(lambda: update_status(iiko_account.get('login'), f'? Подключено'))
                 time.sleep(0.3)
                 return res.text
 
@@ -105,11 +100,8 @@ class IIKOManager:
 
             case _, *code:
                 warning(f'Code: {code}, Method: GET {method}, response: {res.text}')
-                update_queue.put(lambda: update_status(self.login, f'(!) Ошибка. Код: {code}'))
-
                 text = f"Ошибка в подключении к IIKO. Код ошибки {code}. Обратитесь к системному администратору.",
                 show_notification(text)
-
                 return f'Error {code}. See warning logs.'
 
     def search_income_docs(self, from_date: str):

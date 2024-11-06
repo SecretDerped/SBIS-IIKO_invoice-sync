@@ -2,7 +2,7 @@ import atexit
 import base64
 import json
 from datetime import datetime
-from logging import info, INFO, StreamHandler, FileHandler, basicConfig
+from logging import info, INFO, StreamHandler, FileHandler, basicConfig, getLogger, WARNING
 import os
 import re
 import sys
@@ -11,11 +11,15 @@ import tomli
 from cryptography.fernet import Fernet
 
 log_level = INFO
+
 console_out = StreamHandler()
 file_log = FileHandler(f"application.log", mode="w")
 basicConfig(format='[%(asctime)s] | %(message)s',
             handlers=(file_log, console_out),
             level=log_level)
+
+# Установить уровень логирования SQLAlchemy
+getLogger("sqlalchemy.engine").setLevel(WARNING)
 
 
 def load_conf():

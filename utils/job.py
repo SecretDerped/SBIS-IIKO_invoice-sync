@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from gui.error import user_has_allowed
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
-from utils.programm_loop import update_queue, stop_event
+from utils.db_data_takers import get_connections_data, update_status
+from utils.programm_loop import stop_event
 from utils.tools import validate_supplier, search_doc_days, conceptions_ignore, \
     xml_buffer_filepath, NoAuth, create_sbis_xml_and_get_total_sum, create_responsible_dict
 
@@ -32,19 +33,6 @@ def get_inn_by_concept(concept_name):
 
 CONCEPT_PASS_LIST = ['ИП Андреев И.В.']
 INN_IGNORE_LIST = []
-
-
-def initialize_managers(connection):
-    try:
-        iiko_conn = connection.get('iiko')
-        iiko = IIKOManager(iiko_conn['login'], iiko_conn['password_hash'], iiko_conn['server_address'])
-
-        sbis_conn = connection.get('sbis')
-        sbis = SBISManager(sbis_conn['login'], sbis_conn['password_hash'], sbis_conn['regulation_id'])
-        return sbis, iiko
-    except Exception as e:
-        warning(f"Ошибка инициализации: {e}")
-        return None, None
 
 
 async def process_documents(iiko, sbis):
@@ -166,39 +154,42 @@ async def process_documents(iiko, sbis):
             break
 
 
-async def job(connections):
+def initialize_managers(connection):
+    iiko_conn = connection['iiko']
+    iiko = IIKOManager(iiko_conn['login'], iiko_conn['password_hash'], iiko_conn['server_url'])
+
+    sbis_conn = connection['saby']
+    sbis = SBISManager(sbis_conn['login'], sbis_conn['password_hash'], sbis_conn['regulation_id'])
+    return iiko, sbis
+
+
+async def job():
     info("Запуск цикла...")
     doc_count = 0
     while not stop_event.is_set():
+        connections = get_connections_data()
+        if not connections:
+            info('Таблица соединений пуста. Жду...')
+            await asyncio.sleep(1)
+            return
+
         try:
             for connection in connections:
-
-                sbis = SBISManager(connection.saby_connection.login,
-                                   connection.saby_connection.password_hash,
-                                   connection.saby_connection.regulation_id)
-
-                iiko = IIKOManager(connection.iiko_connection.login,
-                                   connection.iiko_connection.password_hash,
-                                   connection.iiko_connection.server_url)
-
-                if not sbis or not iiko:
-                    continue
-
-                conn_id = connection.id
+                iiko, sbis = initialize_managers(connection)
+                conn_id = connection['id']
                 try:
                     await process_documents(iiko, sbis)
-                    update_queue.put(lambda: update_status(conn_id, '✔ Подключено'))
+                    update_status(conn_id, '✔ Подключено')
                     doc_count += 1
 
                 except NoAuth:
-                    update_queue.put(lambda: update_status(conn_id, 'Неверный логин/пароль'))
-
+                    update_status(conn_id, 'Неверный логин/пароль')
+                except ConnectionError as e:
+                    update_status(conn_id, f'(?) Подключение...')
+                    warning(f'Ошибка соединения: {e} | {traceback.format_exc()}')
                 except Exception as e:
-                    update_queue.put(lambda: update_status(conn_id, f'(!) Ошибка'))
+                    update_status(conn_id, f'(!) Ошибка')
                     warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
-
-                except ConnectionError:
-                    update_queue.put(lambda: update_status(conn_id, f'(?) Подключение...'))
 
         except Exception as e:
             logging.critical(f'Ошибка: {e}\n\n {traceback.format_exc()}')

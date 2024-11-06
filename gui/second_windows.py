@@ -4,12 +4,13 @@ from ttkbootstrap import PRIMARY, OUTLINE, SUCCESS
 import ttkbootstrap as ttkb
 
 from utils.db import SABYConnection, IIKOConnection, Connection
-from utils.db_data_takers import add_to_db, get_saby_accounts, get_iiko_accounts
+from utils.db_data_takers import add_to_db, get_saby_accounts, get_iiko_accounts, get_connections_data
 from utils.tools import add_window_size, encode_password
 
 
 class ConnectionWindow:
-    def __init__(self, root, title):
+    def __init__(self, outer_window, title):
+        self.main_window = outer_window
         self.window = ttkb.Toplevel()
         self.window.title(title)
         self.window.geometry(add_window_size)
@@ -27,17 +28,17 @@ class ConnectionWindow:
                                         bootstyle=(PRIMARY, OUTLINE))
         self.close_button.pack(side='top', anchor='ne', padx=5, pady=5)
 
-        root.update_idletasks()
+        self.main_window.root.update_idletasks()
         self.window.update_idletasks()
 
         # Этот код нужен, чтобы окно подключения появлялось над основным при активации
-        main_x = root.winfo_x()
-        main_width = root.winfo_width()
+        main_x = self.main_window.root.winfo_x()
+        main_width = self.main_window.root.winfo_width()
         win_width = self.window.winfo_width()
         position_right = int(main_x + (main_width / 2) - (win_width / 2))
 
-        main_y = root.winfo_y()
-        main_height = root.winfo_height()
+        main_y = self.main_window.root.winfo_y()
+        main_height = self.main_window.root.winfo_height()
         win_height = self.window.winfo_height()
         position_down = int(main_y + (main_height / 2) - (win_height / 2))
 
@@ -61,6 +62,7 @@ class ConnectionWindow:
 
         record = model(**kwargs)  # Создаем экземпляр модели, распаковывая args
         add_to_db(record)
+
         self.window.destroy()
 
 
@@ -127,18 +129,25 @@ class SetConnectWindow(ConnectionWindow):
     def set_menu(self):
         # Поля ввода для подключения
         ttkb.Label(self.frame, text="Выберите аккаунт IIKO:").pack()
-        iiko_accounts = [conn.login for conn in get_iiko_accounts()]
-        iiko_select_field = ttkb.Combobox(self.frame, values=iiko_accounts)
+        # Получаем пары (id, login) для аккаунтов IIKO
+        iiko_accounts = [(conn.id, conn.login) for conn in get_iiko_accounts()]
+        iiko_select_field = ttkb.Combobox(self.frame, values=[login for _, login in iiko_accounts])
         iiko_select_field.pack()
 
         ttkb.Label(self.frame, text="Выберите аккаунт СБИС:").pack()
-        sbis_accounts = [conn.login for conn in get_saby_accounts()]
-        sbis_select_field = ttkb.Combobox(self.frame, values=sbis_accounts)
+        # Получаем пары (id, login) для аккаунтов СБИС
+        sbis_accounts = [(conn.id, conn.login) for conn in get_saby_accounts()]
+        sbis_select_field = ttkb.Combobox(self.frame, values=[login for _, login in sbis_accounts])
         sbis_select_field.pack()
 
-        submit_button = ttkb.Button(self.frame, text="Добавить",
-                                    command=lambda: self.on_submit(Connection,
-                                                                   saby_connection_id=iiko_select_field.get(),
-                                                                   iiko_connection_id=sbis_select_field.get()),
-                                    bootstyle=SUCCESS)
+        submit_button = ttkb.Button(
+            self.frame,
+            text="Добавить",
+            command=lambda: self.on_submit(
+                Connection,
+                saby_connection_id=next((id for id, login in iiko_accounts if login == iiko_select_field.get()), None),
+                iiko_connection_id=next((id for id, login in sbis_accounts if login == sbis_select_field.get()), None)
+            ),
+            bootstyle=SUCCESS
+        )
         submit_button.pack(pady=5)

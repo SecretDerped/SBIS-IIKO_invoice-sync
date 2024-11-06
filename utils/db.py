@@ -1,11 +1,11 @@
 import sqlite3
 
-from sqlalchemy import Column, Integer, String, ForeignKey, create_engine
+from sqlalchemy import Column, Integer, String, ForeignKey, create_engine, event
 from sqlalchemy.orm import relationship, declarative_base, sessionmaker
 
 # Настройка подключения к базе данных. Создаём пул подключений
 DATABASE_URL = 'sqlite:///connections.db'
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 Session = sessionmaker(bind=engine)
 
 # Создаем подключение к базе данных (файл my_database.db будет создан)
@@ -44,6 +44,13 @@ class Connection(Base):
     saby_connection_id = Column(Integer, ForeignKey("saby_connections.id"), nullable=False)
     iiko_connection_id = Column(Integer, ForeignKey("iiko_connections.id"), nullable=False)
     status = Column(String)
+
     # Устанавливаем отношения для удобного обращения к связанным данным
     saby_connection = relationship("SABYConnection", back_populates="connections")
     iiko_connection = relationship("IIKOConnection", back_populates="connections")
+
+
+def db_listener_on(model, func_on_change):
+    event.listen(model, 'after_insert', func_on_change)
+    event.listen(model, 'after_update', func_on_change)
+    event.listen(model, 'after_delete', func_on_change)
