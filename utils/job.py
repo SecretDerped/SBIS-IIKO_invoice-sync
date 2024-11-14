@@ -5,10 +5,13 @@ import traceback
 import xmltodict
 from datetime import datetime, timedelta
 
+from sqlalchemy import update
+
 from gui.error import user_has_allowed
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
-from utils.db_data_takers import get_connections_data, update_status
+from utils.db import Connection, Session
+from utils.db_data_takers import get_connections_data
 from utils.programm_loop import stop_event
 from utils.tools import validate_supplier, search_doc_days, conceptions_ignore, \
     xml_buffer_filepath, NoAuth, create_sbis_xml_and_get_total_sum, create_responsible_dict
@@ -163,6 +166,25 @@ def initialize_managers(connection):
     return iiko, sbis
 
 
+def update_status(conn_id, status):
+    # TODO: Настроить показ статусов подключений
+    with Session() as session:
+        try:
+            # Обновляем статус подключения в базе данных
+            session.execute(
+                update(Connection)
+                .where(Connection.id == conn_id)
+                .values(status=status)
+            )
+            session.commit()
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Ошибка при обновлении статуса подключения: {e}")
+        finally:
+            session.close()
+
+
 async def job():
     info("Запуск цикла...")
     doc_count = 0
@@ -171,7 +193,7 @@ async def job():
         if not connections:
             info('Таблица соединений пуста. Жду...')
             await asyncio.sleep(1)
-            return
+            continue
 
         try:
             for connection in connections:

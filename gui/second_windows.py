@@ -63,6 +63,7 @@ class ConnectionWindow:
         record = model(**kwargs)  # Создаем экземпляр модели, распаковывая args
         add_to_db(record)
 
+        self.main_window.handle_instance()
         self.window.destroy()
 
 
@@ -88,7 +89,8 @@ class SABYConnectWindow(ConnectionWindow):
         # Оборачиваем вызов в лямбду для отложенного выполнения
         submit_button = ttkb.Button(self.frame, text="Добавить",
                                     command=lambda: self.on_submit(SABYConnection, login=sbis_login_entry.get(),
-                                                                   password_hash=encode_password(sbis_password_entry.get()),
+                                                                   password_hash=encode_password(
+                                                                       sbis_password_entry.get()),
                                                                    regulation_id=sbis_regulations_id_entry.get()),
                                     bootstyle=SUCCESS)
         submit_button.pack(pady=5)
@@ -115,7 +117,8 @@ class IIKOConnectWindow(ConnectionWindow):
 
         submit_button = ttkb.Button(self.frame, text="Добавить",
                                     command=lambda: self.on_submit(IIKOConnection, login=iiko_login_entry.get(),
-                                                                   password_hash=encode_password(iiko_password_entry.get()),
+                                                                   password_hash=encode_password(
+                                                                       iiko_password_entry.get()),
                                                                    server_url=iiko_server_url_entry.get()),
                                     bootstyle=SUCCESS)
         submit_button.pack(pady=5)
@@ -145,8 +148,8 @@ class SetConnectWindow(ConnectionWindow):
             text="Добавить",
             command=lambda: self.on_submit(
                 Connection,
-                saby_connection_id=next((id for id, login in iiko_accounts if login == iiko_select_field.get()), None),
-                iiko_connection_id=next((id for id, login in sbis_accounts if login == sbis_select_field.get()), None)
+                saby_connection_id=next((id for id, login in sbis_accounts if login == sbis_select_field.get()), None),
+                iiko_connection_id=next((id for id, login in iiko_accounts if login == iiko_select_field.get()), None)
             ),
             bootstyle=SUCCESS
         )

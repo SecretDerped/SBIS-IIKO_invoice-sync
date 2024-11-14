@@ -7,7 +7,7 @@ import ttkbootstrap as ttkb
 from tkinter import ttk
 from PIL import ImageTk
 
-from utils.db import IIKOConnection, SABYConnection, Connection, db_listener_on, Session
+from utils.db import IIKOConnection, SABYConnection, Connection, Session
 from utils.db_data_takers import get_connections_data, get_iiko_accounts, get_saby_accounts
 from utils.programm_loop import stop_event
 from utils.tools import main_windows_size
@@ -38,19 +38,10 @@ class MainWindow:
         self.conn_table = None
         self.show_connection_frame()
 
-        db_listener_on(IIKOConnection, self.on_data_change)
-        db_listener_on(SABYConnection, self.on_data_change)
-        db_listener_on(Connection, self.on_data_change)
-
-    def on_data_change(self, mapper, connection, target):
-        # Здесь target — это объект модели, для которого произошло изменение
-        # Вызываем соответствующую функцию обновления интерфейса
-        if isinstance(target, IIKOConnection):
-            self.refresh_accounts_data(get_iiko_accounts(), self.iiko_table)
-        elif isinstance(target, SABYConnection):
-            self.refresh_accounts_data(get_saby_accounts(), self.saby_table)
-        elif isinstance(target, Connection):
-            self.refresh_conn_data(get_connections_data(), self.conn_table)
+    def handle_instance(self):
+        self.refresh_accounts_data(get_iiko_accounts(), self.iiko_table)
+        self.refresh_accounts_data(get_saby_accounts(), self.saby_table)
+        self.refresh_conn_data(get_connections_data(), self.conn_table)
 
     def exit_program(self, thread, loop):
         stop_event.set()
@@ -80,16 +71,33 @@ class MainWindow:
         # Например, заново считывание данных из БД и перезагрузка виджета
 
     # Метод для удаления записей
-    def delete_selected(self, tree, model, data):
+    def delete_selected(self, tree, model):
         with Session() as session:
             selected_item = tree.selection()
-            if selected_item:
-                login = tree.item(selected_item[0], 'values')[1]  # Получаем логин из выбранного элемента
-                record = session.query(model).filter_by(login=login).first()  # Ищем запись в базе данных по логину
-                # TODO: делать удаление записей.
+            if not selected_item:
+                return
+
+            item_id = tree.item(selected_item[0], 'values')[0]  # Получаем id из выбранного элемента
+
+            # Проверяем, к какой таблице относится удаляемая запись
+            if model == Connection:
+                # Удаляем только из Connections
+                record = session.query(model).filter_by(id=item_id).first()
                 if record:
-                    record.delete()  # Удаляем найденную запись
-                    self.refresh_accounts_data(data, tree)
+                    session.delete(record)
+                    session.commit()
+                    self.handle_instance()
+            else:
+                # Удаляем запись из своей таблицы и каскадно из Connections
+                record = session.query(model).filter_by(id=item_id).first()
+                if record:
+                    # Получаем все связанные записи из Connection и удаляем их
+                    connections = session.query(Connection).filter_by(iiko_connection_id=item_id).all()
+                    for conn in connections:
+                        session.delete(conn)
+                    session.delete(record)  # Удаляем основную запись
+                    session.commit()
+                    self.handle_instance()
 
     @staticmethod
     def refresh_accounts_data(accounts, tree):
@@ -104,7 +112,7 @@ class MainWindow:
         # --- Таблица для логинов IIKO ---
         iiko_tree = ttk.Treeview(frame_iiko, columns=("id", "login"), show='headings', height=10)
         iiko_tree.heading('id', text="ID")
-        iiko_tree.column("id", width=50, anchor='center')
+        iiko_tree.column("id", width=30, anchor='center')
         iiko_tree.heading('login', text="IIKO Логин")
         iiko_tree.column("login", width=150, anchor='center')
         iiko_tree.pack()
@@ -113,7 +121,7 @@ class MainWindow:
                    command=lambda: IIKOConnectWindow(self, 'Новый аккаунт IIKO')).pack(pady=20)
         # Кнопка для удаления аккаунта IIKO
         ttk.Button(frame_iiko, text='Удалить выбранные аккаунты IIKO',
-                   command=lambda: self.delete_selected(self.iiko_table, IIKOConnection, get_iiko_accounts())).pack(pady=5)
+                   command=lambda: self.delete_selected(self.iiko_table, IIKOConnection)).pack(pady=5)
 
         self.refresh_accounts_data(get_iiko_accounts(), self.iiko_table)
 
@@ -124,7 +132,7 @@ class MainWindow:
         # --- Таблица для логинов СБИС ---
         saby_tree = ttk.Treeview(frame_saby, columns=("id", "login"), show='headings', height=10)
         saby_tree.heading('id', text="ID")
-        saby_tree.column("id", width=50, anchor='center')
+        saby_tree.column("id", width=30, anchor='center')
         saby_tree.heading('login', text="СБИС Логин")
         saby_tree.column("login", width=150, anchor='center')
         saby_tree.pack()
@@ -134,7 +142,7 @@ class MainWindow:
                    command=lambda: SABYConnectWindow(self, 'Новый аккаунт СБИС')).pack(pady=20)
         # Кнопка для удаления аккаунта СБИС
         ttk.Button(frame_saby, text='Удалить выбранные аккаунты СБИС',
-                   command=lambda: self.delete_selected(self.saby_table, SABYConnection, get_saby_accounts())).pack(pady=5)
+                   command=lambda: self.delete_selected(self.saby_table, SABYConnection)).pack(pady=5)
 
         self.refresh_accounts_data(get_saby_accounts(), saby_tree)
 
@@ -145,7 +153,7 @@ class MainWindow:
             tree.insert('', 'end', values=(account['id'],
                                            account['iiko']['login'],
                                            account['saby']['login'],
-                                           None))
+                                           account['status']))
 
     def show_connection_frame(self):
         frame_connections = ttkb.Frame(self.root)
@@ -155,20 +163,20 @@ class MainWindow:
         connections_tree = ttk.Treeview(frame_connections, columns=("id", "iiko_login", "saby_login", "status"),
                                         show='headings')
         connections_tree.heading('id', text="ID")
-        connections_tree.column("id", width=50, anchor='center')
+        connections_tree.column("id", width=30, anchor='center')
         connections_tree.heading('iiko_login', text="IIKO Логин")
         connections_tree.column("iiko_login", width=100, anchor='center')
         connections_tree.heading('saby_login', text="СБИС Логин")
         connections_tree.column("saby_login", width=100, anchor='center')
         connections_tree.heading('status', text="Статус")
-        connections_tree.column("status", width=100, anchor='center')
+        connections_tree.column("status", width=200, anchor='center')
         connections_tree.pack()
         self.conn_table = connections_tree
         ttk.Button(frame_connections, text="Добавить соединение",
                    command=lambda: SetConnectWindow(self, 'Новое соединение')).pack(pady=20)
         # Кнопка для удаления соединений
         ttk.Button(frame_connections, text="Удалить выбранные соединения",
-                   command=lambda: self.delete_selected(self.conn_table, Connection, get_connections_data())).pack(pady=5)
+                   command=lambda: self.delete_selected(self.conn_table, Connection)).pack(pady=5)
 
         self.refresh_conn_data(get_connections_data(), self.conn_table)
 

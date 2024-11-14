@@ -2,6 +2,7 @@ import sqlite3
 
 from sqlalchemy import Column, Integer, String, ForeignKey, create_engine, event
 from sqlalchemy.orm import relationship, declarative_base, sessionmaker
+from sqlalchemy.engine import Engine
 
 # Настройка подключения к базе данных. Создаём пул подключений
 DATABASE_URL = 'sqlite:///connections.db'
@@ -23,7 +24,8 @@ class SABYConnection(Base):
     token = Column(String)
 
     # Связь с таблицей connections
-    connections = relationship("Connection", back_populates="saby_connection")
+    connections = relationship("Connection", back_populates="saby_connection",
+                                   cascade="delete")
 
 
 class IIKOConnection(Base):
@@ -35,22 +37,26 @@ class IIKOConnection(Base):
     token = Column(String)
 
     # Связь с таблицей connections
-    connections = relationship("Connection", back_populates="iiko_connection")
+    connections = relationship("Connection", back_populates="iiko_connection",
+                                   cascade="delete")
 
 
 class Connection(Base):
-    __tablename__ = "connections"
+    __tablename__ = 'connections'
+
     id = Column(Integer, primary_key=True)
-    saby_connection_id = Column(Integer, ForeignKey("saby_connections.id"), nullable=False)
-    iiko_connection_id = Column(Integer, ForeignKey("iiko_connections.id"), nullable=False)
+    iiko_connection_id = Column(Integer, ForeignKey('iiko_connections.id'))
+    iiko_connection = relationship('IIKOConnection',
+                                   back_populates='connections')
+
+    saby_connection_id = Column(Integer, ForeignKey('saby_connections.id'))
+    saby_connection = relationship('SABYConnection',
+                                   back_populates='connections')
     status = Column(String)
 
-    # Устанавливаем отношения для удобного обращения к связанным данным
-    saby_connection = relationship("SABYConnection", back_populates="connections")
-    iiko_connection = relationship("IIKOConnection", back_populates="connections")
 
-
-def db_listener_on(model, func_on_change):
-    event.listen(model, 'after_insert', func_on_change)
-    event.listen(model, 'after_update', func_on_change)
-    event.listen(model, 'after_delete', func_on_change)
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
