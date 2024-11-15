@@ -152,34 +152,13 @@ class MainWindow:
         iiko_tree.pack()
 
         self.iiko_table = iiko_tree
-        ttk.Button(frame_iiko, text='Добавить аккаунт IIKO',
-                   command=lambda: IIKOConnectWindow(self, 'Новый аккаунт IIKO')).pack(pady=5)
-        tk.Button(frame_iiko, text='Редактировать выбранный аккаунт IIKO',
+        ttk.Button(frame_iiko, text='Добавить IIKO',
+                   command=lambda: IIKOConnectWindow(self, 'Добавить аккаунт IIKO')).pack(pady=5)
+        ttk.Button(frame_iiko, text='Удалить выбранный',
+                   command=lambda: self.delete_selected(self.iiko_table, IIKOConnection)).pack(pady=5)
+        ttk.Button(frame_iiko, text='Редактировать',
                   command=lambda: self.edit_record(self.iiko_table, IIKOConnection, 'Редактировать аккаунт IIKO')).pack(
             pady=5)
-        ttk.Button(frame_iiko, text='Удалить выбранные аккаунты IIKO',
-                   command=lambda: self.delete_selected(self.iiko_table, IIKOConnection)).pack(pady=5)
-
-    def show_saby_frame(self):
-        frame_saby = ttkb.Frame(self.root)
-        frame_saby.pack(side="left", fill="y", padx=10)
-
-        # --- Таблица для логинов СБИС ---
-        saby_tree = ttk.Treeview(frame_saby, columns=("id", "login"), show='headings', height=10)
-        saby_tree.heading('id', text="ID")
-        saby_tree.column("id", width=30, anchor='center')
-        saby_tree.heading('login', text="СБИС Логин")
-        saby_tree.column("login", width=150, anchor='center')
-        saby_tree.pack()
-
-        self.saby_table = saby_tree
-        ttk.Button(frame_saby, text='+ СБИС аккаунт',
-                   command=lambda: SABYConnectWindow(self, 'Новый аккаунт СБИС')).pack(pady=5)
-        ttk.Button(frame_saby, text='Редактировать выбранный',
-                   command=lambda: self.edit_record(self.saby_table, SABYConnection,
-                                                    'Редактировать аккаунт СБИС')).pack(pady=5)
-        ttk.Button(frame_saby, text='Удалить выбранный',
-                   command=lambda: self.delete_selected(self.saby_table, SABYConnection)).pack(pady=5)
 
     @staticmethod
     def refresh_conn_data(accounts, tree):
@@ -212,9 +191,27 @@ class MainWindow:
                    command=lambda: SetConnectWindow(self, 'Новое соединение')).pack(pady=5)
         ttk.Button(frame_connections, text="Удалить выбранное",
                    command=lambda: self.delete_selected(self.conn_table, Connection)).pack(pady=5)
-        ttk.Button(frame_connections, text='Редактировать',
-                   command=lambda: self.edit_record(self.conn_table, Connection, 'Редактировать соединение')).pack(
-            pady=5)
 
         self.refresh_conn_data(get_connections_data(), self.conn_table)
+
+    def show_saby_frame(self):
+        frame_saby = ttkb.Frame(self.root)
+        frame_saby.pack(side="left", fill="y", padx=10)
+
+        # --- Таблица для логинов СБИС ---
+        saby_tree = ttk.Treeview(frame_saby, columns=("id", "login"), show='headings', height=10)
+        saby_tree.heading('id', text="ID")
+        saby_tree.column("id", width=30, anchor='center')
+        saby_tree.heading('login', text="СБИС Логин")
+        saby_tree.column("login", width=150, anchor='center')
+        saby_tree.pack()
+
+        self.saby_table = saby_tree
+        ttk.Button(frame_saby, text='Добавить СБИС',
+                   command=lambda: SABYConnectWindow(self, 'Новый аккаунт СБИС')).pack(pady=5)
+        ttk.Button(frame_saby, text='Удалить выбранный',
+                   command=lambda: self.delete_selected(self.saby_table, SABYConnection)).pack(pady=5)
+        ttk.Button(frame_saby, text='Редактировать',
+                   command=lambda: self.edit_record(self.saby_table, SABYConnection,
+                                                    'Редактировать аккаунт СБИС')).pack(pady=5)
 

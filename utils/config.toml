@@ -24,5 +24,5 @@ theme = "journal"
 
 [gui.window_size]
 adding = "280x267"
-main = "1050x350"
+main = "880x350"
 error = "440x410"
