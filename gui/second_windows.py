@@ -1,11 +1,12 @@
 from logging import warning
 
+import tkinter as tk
 from ttkbootstrap import PRIMARY, OUTLINE, SUCCESS
 import ttkbootstrap as ttkb
 
-from utils.db import SABYConnection, IIKOConnection, Connection
-from utils.db_data_takers import add_to_db, get_saby_accounts, get_iiko_accounts, get_connections_data
-from utils.tools import add_window_size, encode_password
+from utils.db import SABYConnection, IIKOConnection, Connection, Session
+from utils.db_data_takers import add_to_db, get_saby_accounts, get_iiko_accounts
+from utils.tools import add_window_size, encode_password, enable_paste
 
 
 class ConnectionWindow:
@@ -44,7 +45,8 @@ class ConnectionWindow:
 
         self.window.geometry(f"{win_width}x{win_height}+{position_right}+{position_down}")
 
-        self.window.grab_set()  # захватываем пользовательский ввод
+        self.window.grab_set()  # Захватываем пользовательский ввод
+        self.window.bind_class("Entry", "<Control-v>", enable_paste)  # Включаем поддержкку втавки из буфера
 
         self.error_label = ttkb.Label(self.frame, foreground="red")  # Заранее инициализируем поле ошибки
         self.error_label.config(text="")
@@ -154,3 +156,38 @@ class SetConnectWindow(ConnectionWindow):
             bootstyle=SUCCESS
         )
         submit_button.pack(pady=5)
+
+
+class EditRecordWindow(ConnectionWindow):
+    def __init__(self, root, title, model, record):
+        super().__init__(root, title)
+        self.model = model
+        self.record = record
+        self.set_edit_menu()
+
+    def set_edit_menu(self):
+        fields = self.model.__table__.columns.keys()  # Динамически получаем все поля
+        self.entries = {}
+
+        for field in fields:
+            ttkb.Label(self.frame, text=f"{field.capitalize()}:").pack()
+            entry = ttkb.Entry(self.frame)
+            entry.pack()
+            entry.insert(0, getattr(self.record, field, ''))  # Заполняем текущим значением
+            self.entries[field] = entry
+
+        ttkb.Button(self.frame, text="Сохранить изменения", command=self.save_changes, bootstyle=SUCCESS).pack(pady=5)
+
+    def save_changes(self):
+        with Session() as session:
+            try:
+                record = session.query(self.model).filter_by(id=self.record.id).first()
+                for field, entry in self.entries.items():
+                    setattr(record, field, entry.get())  # Обновляем значения
+                session.commit()
+                self.main_window.handle_instance()
+                self.window.destroy()
+            except Exception as e:
+                session.rollback()
+                self.error_label.config(text=f"Ошибка: {e}")
+                self.error_label.pack()

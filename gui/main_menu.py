@@ -1,18 +1,19 @@
 import sys
 import tempfile
 import threading
-from logging import info
+from logging import info, error
 import tkinter as tk
 import ttkbootstrap as ttkb
 from tkinter import ttk
 from PIL import ImageTk
+from sqlalchemy import update
 
 from utils.db import IIKOConnection, SABYConnection, Connection, Session
 from utils.db_data_takers import get_connections_data, get_iiko_accounts, get_saby_accounts
 from utils.programm_loop import stop_event
 from utils.tools import main_windows_size
 from gui.iiko_ikon import icon_data, iiko_icon
-from gui.second_windows import SABYConnectWindow, IIKOConnectWindow, SetConnectWindow
+from gui.second_windows import SABYConnectWindow, IIKOConnectWindow, SetConnectWindow, EditRecordWindow
 
 
 class MainWindow:
@@ -38,10 +39,32 @@ class MainWindow:
         self.conn_table = None
         self.show_connection_frame()
 
+        self.handle_instance()
+
     def handle_instance(self):
         self.refresh_accounts_data(get_iiko_accounts(), self.iiko_table)
         self.refresh_accounts_data(get_saby_accounts(), self.saby_table)
         self.refresh_conn_data(get_connections_data(), self.conn_table)
+
+    def update_status(self, conn_id, status):
+        with Session() as session:
+            try:
+                # Обновляем статус подключения в базе данных
+                session.execute(
+                    update(Connection)
+                    .where(Connection.id == conn_id)
+                    .values(status=status)
+                )
+                session.commit()
+                # Теперь обновим отображение статуса в GUI.
+                # Вызовем метод для обновления отображения статуса в таблице
+                self.refresh_conn_data(get_connections_data(), self.conn_table)
+
+            except Exception as e:
+                session.rollback()
+                error(f"Ошибка при обновлении статуса подключения: {e}")
+            finally:
+                session.close()
 
     def exit_program(self, thread, loop):
         stop_event.set()
@@ -105,6 +128,17 @@ class MainWindow:
         for account in accounts:
             tree.insert('', 'end', values=(account.id, account.login))
 
+    def edit_record(self, tree, model, title):
+        selected_item = tree.selection()
+        if not selected_item:
+            return
+
+        item_id = tree.item(selected_item[0], 'values')[0]  # Получаем ID записи
+        with Session() as session:
+            record = session.query(model).filter_by(id=item_id).first()
+            if record:
+                EditRecordWindow(self, title, model, record)
+
     def show_iiko_frame(self):
         frame_iiko = ttkb.Frame(self.root)
         frame_iiko.pack(side="left", fill="y", padx=10)
@@ -116,14 +150,15 @@ class MainWindow:
         iiko_tree.heading('login', text="IIKO Логин")
         iiko_tree.column("login", width=150, anchor='center')
         iiko_tree.pack()
+
         self.iiko_table = iiko_tree
         ttk.Button(frame_iiko, text='Добавить аккаунт IIKO',
-                   command=lambda: IIKOConnectWindow(self, 'Новый аккаунт IIKO')).pack(pady=20)
-        # Кнопка для удаления аккаунта IIKO
+                   command=lambda: IIKOConnectWindow(self, 'Новый аккаунт IIKO')).pack(pady=5)
+        tk.Button(frame_iiko, text='Редактировать выбранный аккаунт IIKO',
+                  command=lambda: self.edit_record(self.iiko_table, IIKOConnection, 'Редактировать аккаунт IIKO')).pack(
+            pady=5)
         ttk.Button(frame_iiko, text='Удалить выбранные аккаунты IIKO',
                    command=lambda: self.delete_selected(self.iiko_table, IIKOConnection)).pack(pady=5)
-
-        self.refresh_accounts_data(get_iiko_accounts(), self.iiko_table)
 
     def show_saby_frame(self):
         frame_saby = ttkb.Frame(self.root)
@@ -138,13 +173,13 @@ class MainWindow:
         saby_tree.pack()
 
         self.saby_table = saby_tree
-        ttk.Button(frame_saby, text='Добавить аккаунт СБИС',
-                   command=lambda: SABYConnectWindow(self, 'Новый аккаунт СБИС')).pack(pady=20)
-        # Кнопка для удаления аккаунта СБИС
-        ttk.Button(frame_saby, text='Удалить выбранные аккаунты СБИС',
+        ttk.Button(frame_saby, text='+ СБИС аккаунт',
+                   command=lambda: SABYConnectWindow(self, 'Новый аккаунт СБИС')).pack(pady=5)
+        ttk.Button(frame_saby, text='Редактировать выбранный',
+                   command=lambda: self.edit_record(self.saby_table, SABYConnection,
+                                                    'Редактировать аккаунт СБИС')).pack(pady=5)
+        ttk.Button(frame_saby, text='Удалить выбранный',
                    command=lambda: self.delete_selected(self.saby_table, SABYConnection)).pack(pady=5)
-
-        self.refresh_accounts_data(get_saby_accounts(), saby_tree)
 
     @staticmethod
     def refresh_conn_data(accounts, tree):
@@ -171,12 +206,15 @@ class MainWindow:
         connections_tree.heading('status', text="Статус")
         connections_tree.column("status", width=200, anchor='center')
         connections_tree.pack()
+
         self.conn_table = connections_tree
-        ttk.Button(frame_connections, text="Добавить соединение",
-                   command=lambda: SetConnectWindow(self, 'Новое соединение')).pack(pady=20)
-        # Кнопка для удаления соединений
-        ttk.Button(frame_connections, text="Удалить выбранные соединения",
+        ttk.Button(frame_connections, text="Соединение +",
+                   command=lambda: SetConnectWindow(self, 'Новое соединение')).pack(pady=5)
+        ttk.Button(frame_connections, text="Удалить выбранное",
                    command=lambda: self.delete_selected(self.conn_table, Connection)).pack(pady=5)
+        ttk.Button(frame_connections, text='Редактировать',
+                   command=lambda: self.edit_record(self.conn_table, Connection, 'Редактировать соединение')).pack(
+            pady=5)
 
         self.refresh_conn_data(get_connections_data(), self.conn_table)
 

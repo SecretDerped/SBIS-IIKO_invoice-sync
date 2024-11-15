@@ -5,12 +5,9 @@ import traceback
 import xmltodict
 from datetime import datetime, timedelta
 
-from sqlalchemy import update
-
 from gui.error import user_has_allowed
 from managers.iiko import IIKOManager
 from managers.saby import SBISManager
-from utils.db import Connection, Session
 from utils.db_data_takers import get_connections_data
 from utils.programm_loop import stop_event
 from utils.tools import validate_supplier, search_doc_days, conceptions_ignore, \
@@ -166,26 +163,27 @@ def initialize_managers(connection):
     return iiko, sbis
 
 
-def update_status(conn_id, status):
-    # TODO: Настроить показ статусов подключений
-    with Session() as session:
-        try:
-            # Обновляем статус подключения в базе данных
-            session.execute(
-                update(Connection)
-                .where(Connection.id == conn_id)
-                .values(status=status)
-            )
-            session.commit()
+async def process_connection(app, connection):
+    """Функция обработки одного соединения."""
+    conn_id = connection['id']
+    iiko, sbis = initialize_managers(connection)
+    try:
+        await process_documents(iiko, sbis)
+        app.update_status(conn_id, '✔ Подключено')
+    except NoAuth:
+        app.update_status(conn_id, 'Неверный логин/пароль')
+    except ConnectionError as e:
+        app.update_status(conn_id, f'(?) Ищу сеть...')
+        warning(f'Ошибка соединения ID {conn_id}: {e} | {traceback.format_exc()}')
+    except Exception as e:
+        app.update_status(conn_id, f'(!) Ошибка')
+        warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
+    finally:
+        info(f"Завершение обработки соединения ID {conn_id}")
 
-        except Exception as e:
-            session.rollback()
-            logging.error(f"Ошибка при обновлении статуса подключения: {e}")
-        finally:
-            session.close()
 
-
-async def job():
+async def job(app):
+    """Главная функция обработки соединений."""
     info("Запуск цикла...")
     doc_count = 0
     while not stop_event.is_set():
@@ -195,27 +193,20 @@ async def job():
             await asyncio.sleep(1)
             continue
 
-        try:
-            for connection in connections:
-                iiko, sbis = initialize_managers(connection)
-                conn_id = connection['id']
-                try:
-                    await process_documents(iiko, sbis)
-                    update_status(conn_id, '✔ Подключено')
-                    doc_count += 1
+        tasks = []
+        for connection in connections:
+            # Создаем задачу для обработки каждого соединения
+            task = asyncio.create_task(process_connection(app, connection))
+            tasks.append(task)
 
-                except NoAuth:
-                    update_status(conn_id, 'Неверный логин/пароль')
-                except ConnectionError as e:
-                    update_status(conn_id, f'(?) Подключение...')
-                    warning(f'Ошибка соединения: {e} | {traceback.format_exc()}')
-                except Exception as e:
-                    update_status(conn_id, f'(!) Ошибка')
-                    warning(f'Цикл прервался. {e} | {traceback.format_exc()}')
+        try:
+            # Ожидаем завершения всех задач
+            await asyncio.gather(*tasks)
+            doc_count += len(connections)
 
         except Exception as e:
             logging.critical(f'Ошибка: {e}\n\n {traceback.format_exc()}')
 
         finally:
-            info(f"Завершение текущего цикла. Обработано документов: {doc_count}.\n\n")
+            info(f"Завершение главного цикла. Обработано документов: {doc_count}.\n\n")
             await asyncio.sleep(1)

@@ -13,13 +13,13 @@ thread = threading.Thread(target=start_async_loop, args=(new_loop, stop_event))
 thread.start()
 info('Thread was started')
 
-# Отправляем задачу в цикл событий без блокировки
-new_loop.call_soon_threadsafe(asyncio.create_task, job())
-info('New loop has started threadsave')
-
-# Создание окна и запуск цикла Tkinter
 window = MainWindow(title, theme, thread, new_loop)
 info('Создание окна и запуск цикла Tkinter')
+
+# Отправляем задачу в цикл событий без блокировки
+new_loop.call_soon_threadsafe(asyncio.create_task, job(window))
+info('New loop has started threadsave')
+
 # Обновляем очередь обработки событий
 window.root.after(300, process_queue, window.root)
 window.root.mainloop()

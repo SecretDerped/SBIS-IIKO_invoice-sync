@@ -6,7 +6,7 @@ from logging import info, INFO, StreamHandler, FileHandler, basicConfig, getLogg
 import os
 import re
 import sys
-
+import tkinter as tk
 import tomli
 from cryptography.fernet import Fernet
 
@@ -102,6 +102,12 @@ def validate_supplier(supplier):
     else:
         return False
 
+
+def enable_paste(event):
+    try:
+        event.widget.insert("insert", event.widget.clipboard_get())
+    except tk.TclError:
+        pass
 
 @atexit.register
 def cleanup():
