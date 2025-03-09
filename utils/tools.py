@@ -2,7 +2,7 @@ import atexit
 import base64
 import json
 from datetime import datetime
-from logging import info, INFO, StreamHandler, FileHandler, basicConfig, getLogger, WARNING
+from logging import DEBUG, info, StreamHandler, FileHandler, basicConfig, getLogger, WARNING
 import os
 import re
 import sys
@@ -10,13 +10,11 @@ import tkinter as tk
 import tomli
 from cryptography.fernet import Fernet
 
-log_level = INFO
-
 console_out = StreamHandler()
 file_log = FileHandler(f"application.log", mode="w")
 basicConfig(format='[%(asctime)s] | %(message)s',
             handlers=(file_log, console_out),
-            level=log_level)
+            level=DEBUG)
 
 # Установить уровень логирования SQLAlchemy
 getLogger("sqlalchemy.engine").setLevel(WARNING)
@@ -59,6 +57,7 @@ theme = app_gui['theme']
 window_size = app_gui['window_size']
 add_window_size = window_size['adding']
 main_windows_size = window_size['main']
+print(main_windows_size)
 error_windows_size = window_size['error']
 
 
@@ -71,7 +70,7 @@ def doc_print(json_doc):
 
 
 def get_digits(string):
-    return re.sub('\D', '', string)
+    return re.sub(r'\D', '', string)
 
 
 def create_responsible_dict(store_name):
@@ -232,6 +231,3 @@ def create_sbis_xml_and_get_total_sum(iiko_doc, supplier):
     os.remove(xml_buffer_filepath)
 
     return base64_file, total_price
-
-
-
