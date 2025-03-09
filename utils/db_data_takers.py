@@ -1,5 +1,3 @@
-from logging import error
-from sqlalchemy import update
 from utils.db import Connection, Session, Base, engine, IIKOConnection, SABYConnection
 
 # Создание таблиц в базе
